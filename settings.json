@@ -1,0 +1,53 @@
+{
+  "mcp": {
+    "servers": ["docs", "deploy"]
+  },
+  "permissions": {
+    "allow": [
+      "Read(*.*)",
+      "Read(**/*.py)",
+      "Edit(*.py)",
+      "Edit(**/*.py)",
+      "Bash(pytest *)",
+      "Bash(ls)",
+      "Bash(ls *)",
+      "Bash(pwd)",
+      "Bash(date)",
+      "Bash(date *)",
+      "Bash(TZ=America/New_York date *)",
+      "Bash(git status)",
+      "Bash(rg *)",
+      "Bash(cat *)",
+      "Bash(npm test)",
+      "load_skill",
+      "llm_summarize_python_files",
+      "write_file(code-review/*.md)",
+      "write_file(harness-smoke-test/*.md)",
+      "list_tasks",
+      "claim_task",
+      "complete_task",
+      "todo"
+    ],
+    "ask": [
+      "Bash(python *)",
+      "Edit(/tests/**)"
+    ],
+    "deny": [
+      "Read(.env)",
+      "Read(**/.env)",
+      "Edit(/.git/**)",
+      "Bash(rm)",
+      "Bash(rm *)",
+      "Bash(sudo)",
+      "Bash(sudo *)",
+      "Bash(curl)",
+      "Bash(curl *)",
+      "Bash(*curl*|*sh*)",
+      "Bash(chmod -R)",
+      "Bash(chmod -R *)",
+      "Bash(git reset --hard*)",
+      "Bash(cat .env)",
+      "Bash(cat **/.env)"
+    ]
+  }
+}

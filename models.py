@@ -1,0 +1,7 @@
+NVIDIA_NEMOTRON_3_SUPER_120B_A12B = "openrouter/nvidia/nemotron-3-super-120b-a12b:free"
+#ROUTER_MODEL ="openrouter/nvidia/nemotron-nano-9b-v2:free"
+ROUTER_MODEL = "openrouter/nvidia/nemotron-3-super-120b-a12b:free"
+GEMMA_4_31_B = "openrouter/google/gemma-4-31b-it:free"
+DEEPSEEK_V4_PRO= "openrouter/deepseek/deepseek-v4-pro"
+XIAOMI_MIMO_V25_PRO="openrouter/xiaomi/mimo-v2.5-pro"
+RING_26_1T= "openrouter/inclusionai/ring-2.6-1t:free"

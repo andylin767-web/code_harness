@@ -1,0 +1,543 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Code Harness Trace Viewer</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f7f8fb;
+      --panel: #ffffff;
+      --text: #172033;
+      --muted: #687386;
+      --line: #dce2ea;
+      --code: #101828;
+      --system: #8a3ffc;
+      --user: #0072ce;
+      --assistant: #198754;
+      --tool: #b7791f;
+      --unknown: #667085;
+      --error: #c2410c;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.45;
+    }
+
+    header {
+      border-bottom: 1px solid var(--line);
+      background: var(--panel);
+      padding: 20px 28px;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+
+    h1 {
+      font-size: 22px;
+      margin: 0 0 12px;
+      letter-spacing: 0;
+    }
+
+    input[type="file"] {
+      display: block;
+      max-width: 100%;
+    }
+
+    main {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 24px;
+    }
+
+    .summary {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+
+    .stat,
+    .message {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+
+    .stat {
+      padding: 12px 14px;
+    }
+
+    .stat .label {
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+    }
+
+    .stat .value {
+      font-size: 16px;
+      font-weight: 650;
+      word-break: break-word;
+    }
+
+    .message {
+      margin-bottom: 14px;
+      overflow: hidden;
+    }
+
+    .message-header {
+      align-items: center;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: space-between;
+      padding: 10px 14px;
+    }
+
+    .message-title {
+      align-items: center;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .index {
+      color: var(--muted);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px;
+    }
+
+    .role {
+      border-radius: 999px;
+      color: white;
+      display: inline-block;
+      font-size: 12px;
+      font-weight: 700;
+      padding: 3px 9px;
+      text-transform: uppercase;
+    }
+
+    .role-system { background: var(--system); }
+    .role-user { background: var(--user); }
+    .role-assistant { background: var(--assistant); }
+    .role-tool { background: var(--tool); }
+    .role-unknown { background: var(--unknown); }
+
+    .meta {
+      color: var(--muted);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px;
+      overflow-wrap: anywhere;
+    }
+
+    .content {
+      padding: 14px;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+
+    .empty {
+      color: var(--muted);
+      font-style: italic;
+    }
+
+    .tool-calls,
+    .nested-llm-calls,
+    details {
+      margin: 0 14px 14px;
+    }
+
+    .tool-call,
+    .nested-llm-call {
+      background: #f3f5f8;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      margin-top: 8px;
+      padding: 10px;
+    }
+
+    pre {
+      background: var(--code);
+      border-radius: 6px;
+      color: #eef4ff;
+      margin: 8px 0 0;
+      overflow: auto;
+      padding: 10px;
+      white-space: pre-wrap;
+    }
+
+    summary {
+      color: var(--muted);
+      cursor: pointer;
+      font-weight: 650;
+      user-select: none;
+    }
+
+    .error {
+      color: var(--error);
+      font-weight: 700;
+    }
+
+    .placeholder {
+      color: var(--muted);
+      padding: 40px 0;
+      text-align: center;
+    }
+
+    .section-title {
+      font-size: 18px;
+      margin: 22px 0 10px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Code Harness Trace Viewer</h1>
+    <input id="fileInput" type="file" accept="application/json,.json">
+  </header>
+
+  <main>
+    <section id="summary" class="summary"></section>
+    <h2 class="section-title">Messages</h2>
+    <section id="messages">
+      <div class="placeholder">Choose a trace JSON file from <code>code_harness/traces/</code>.</div>
+    </section>
+    <h2 class="section-title">Nested LLM Calls</h2>
+    <section id="nestedLlmCalls">
+      <div class="placeholder">Nested LLM calls will appear here when present in the trace.</div>
+    </section>
+  </main>
+
+  <script>
+    const fileInput = document.getElementById("fileInput");
+    const summaryEl = document.getElementById("summary");
+    const messagesEl = document.getElementById("messages");
+    const nestedLlmCallsEl = document.getElementById("nestedLlmCalls");
+
+    fileInput.addEventListener("change", async (event) => {
+      const file = event.target.files && event.target.files[0];
+      if (!file) return;
+
+      try {
+        const trace = JSON.parse(await file.text());
+        renderTrace(trace, file.name);
+      } catch (error) {
+        summaryEl.innerHTML = "";
+        messagesEl.innerHTML = `<div class="placeholder error">Could not load JSON: ${escapeHtml(error.message)}</div>`;
+        nestedLlmCallsEl.innerHTML = "";
+      }
+    });
+
+    function renderTrace(trace, fileName) {
+      const messages = Array.isArray(trace.messages)
+        ? trace.messages
+        : Array.isArray(trace)
+          ? trace
+          : [];
+      const nestedLlmCalls = Array.isArray(trace.nested_llm_calls)
+        ? trace.nested_llm_calls
+        : [];
+
+      renderSummary(trace, messages, nestedLlmCalls, fileName);
+      messagesEl.innerHTML = "";
+      nestedLlmCallsEl.innerHTML = "";
+
+      if (!messages.length) {
+        messagesEl.innerHTML = '<div class="placeholder">No messages found in this trace.</div>';
+      } else {
+        messages.forEach((message, index) => {
+          messagesEl.appendChild(renderMessage(message, index));
+        });
+      }
+
+      if (!nestedLlmCalls.length) {
+        nestedLlmCallsEl.innerHTML = '<div class="placeholder">No nested LLM calls found in this trace.</div>';
+      } else {
+        nestedLlmCalls.forEach((call, index) => {
+          nestedLlmCallsEl.appendChild(renderNestedLlmCall(call, index));
+        });
+      }
+    }
+
+    function renderSummary(trace, messages, nestedLlmCalls, fileName) {
+      const roleCounts = {};
+      let toolCalls = 0;
+      let errors = 0;
+      let nestedErrors = 0;
+      let messageTokens = 0;
+      let nestedLlmMessageTokens = 0;
+
+      for (const message of messages) {
+        const role = String(message && message.role || "unknown");
+        roleCounts[role] = (roleCounts[role] || 0) + 1;
+        toolCalls += getToolCalls(message).length;
+        if (message && (message.error || containsError(message.content))) errors += 1;
+        messageTokens += getMessageTokenCount(message);
+      }
+
+      for (const call of nestedLlmCalls) {
+        if (call && (call.status === "error" || call.error)) nestedErrors += 1;
+        nestedLlmMessageTokens += getNestedLlmCallTokenCount(call);
+      }
+
+      const roleText = Object.entries(roleCounts)
+        .map(([role, count]) => `${role}: ${count}`)
+        .join(" | ") || "none";
+      const totalTokens = messageTokens + nestedLlmMessageTokens;
+
+      const stats = [
+        ["File", fileName],
+        ["Run", trace.run_id || "unknown"],
+        ["Started", trace.started_at || "unknown"],
+        ["Ended", trace.ended_at || "unknown"],
+        ["Messages", String(messages.length)],
+        ["Nested LLM Calls", String(nestedLlmCalls.length)],
+        ["Message Tokens", formatNumber(messageTokens)],
+        ["Nested LLM Message Tokens", formatNumber(nestedLlmMessageTokens)],
+        ["Total Tokens", formatNumber(totalTokens)],
+        ["Roles", roleText],
+        ["Assistant Tool Calls", String(toolCalls)],
+        ["Errors", String(errors + nestedErrors)],
+      ];
+
+      summaryEl.innerHTML = stats.map(([label, value]) => `
+        <div class="stat">
+          <div class="label">${escapeHtml(label)}</div>
+          <div class="value">${escapeHtml(value)}</div>
+        </div>
+      `).join("");
+    }
+
+    function renderMessage(message, index) {
+      const role = String(message && message.role || "unknown");
+      const safeRole = ["system", "user", "assistant", "tool"].includes(role) ? role : "unknown";
+      const article = document.createElement("article");
+      article.className = "message";
+
+      const toolCallIdValue = getToolCallId(message);
+      const toolCallId = toolCallIdValue ? `tool_call_id: ${toolCallIdValue}` : "";
+      const name = message && message.name ? `name: ${message.name}` : "";
+      const meta = [toolCallId, name].filter(Boolean).join("  ");
+      const content = getDisplayContent(message);
+      const toolCalls = getToolCalls(message);
+      const tokenCount = getMessageTokenCount(message);
+
+      article.innerHTML = `
+        <div class="message-header">
+          <div class="message-title">
+            <span class="index">#${index}</span>
+            <span class="role role-${safeRole}">${escapeHtml(role)}</span>
+            ${meta ? `<span class="meta">${escapeHtml(meta)}</span>` : ""}
+          </div>
+          <span class="meta">tokens: ${escapeHtml(formatNumber(tokenCount))}</span>
+          ${containsError(content) ? '<span class="error">error-like content</span>' : ""}
+        </div>
+        <div class="content ${content ? "" : "empty"}">${escapeHtml(content || "(empty content)")}</div>
+      `;
+
+      if (toolCalls.length) {
+        const calls = document.createElement("div");
+        calls.className = "tool-calls";
+        calls.innerHTML = `<summary>Assistant tool calls (${toolCalls.length})</summary>`;
+
+        toolCalls.forEach((call, callIndex) => {
+          const fn = call.function || {};
+          const callEl = document.createElement("div");
+          callEl.className = "tool-call";
+          callEl.innerHTML = `
+            <div class="meta">#${callIndex} id: ${escapeHtml(call.id || "unknown")} name: ${escapeHtml(fn.name || "unknown")}</div>
+            <pre>${escapeHtml(formatJson(parseMaybeJson(fn.arguments)))}</pre>
+          `;
+          calls.appendChild(callEl);
+        });
+        article.appendChild(calls);
+      }
+
+      const details = document.createElement("details");
+      details.innerHTML = `
+        <summary>Raw message JSON</summary>
+        <pre>${escapeHtml(formatJson(message))}</pre>
+      `;
+      article.appendChild(details);
+
+      return article;
+    }
+
+    function renderNestedLlmCall(call, index) {
+      const article = document.createElement("article");
+      article.className = "message";
+      const status = String(call && call.status || "unknown");
+      const safeRole = status === "error" ? "unknown" : "assistant";
+      const filePath = call && call.file_path ? `file: ${call.file_path}` : "";
+      const model = call && call.model ? `model: ${call.model}` : "";
+      const started = call && call.started_at ? `started: ${call.started_at}` : "";
+      const ended = call && call.ended_at ? `ended: ${call.ended_at}` : "";
+      const meta = [filePath, model, started, ended].filter(Boolean).join("  ");
+      const response = call && call.response_content ? call.response_content : "";
+      const error = call && call.error ? call.error : "";
+      const tokenCount = getNestedLlmCallTokenCount(call);
+
+      article.innerHTML = `
+        <div class="message-header">
+          <div class="message-title">
+            <span class="index">#${index}</span>
+            <span class="role role-${safeRole}">${escapeHtml(status)}</span>
+            ${meta ? `<span class="meta">${escapeHtml(meta)}</span>` : ""}
+          </div>
+          <span class="meta">tokens: ${escapeHtml(formatNumber(tokenCount))}</span>
+          ${error ? '<span class="error">error</span>' : ""}
+        </div>
+        <div class="content ${response || error ? "" : "empty"}">${escapeHtml(response || error || "(empty response)")}</div>
+      `;
+
+      const promptDetails = document.createElement("details");
+      promptDetails.innerHTML = `
+        <summary>Prompt messages</summary>
+        <pre>${escapeHtml(formatJson(call && call.messages || []))}</pre>
+      `;
+      article.appendChild(promptDetails);
+
+      const rawDetails = document.createElement("details");
+      rawDetails.innerHTML = `
+        <summary>Raw nested LLM call JSON</summary>
+        <pre>${escapeHtml(formatJson(call))}</pre>
+      `;
+      article.appendChild(rawDetails);
+
+      return article;
+    }
+
+    function getToolCalls(message) {
+      if (!message) return [];
+      if (Array.isArray(message.tool_calls)) return message.tool_calls;
+      if (message.content && Array.isArray(message.content.tool_calls)) return message.content.tool_calls;
+      if (message.llm_message && Array.isArray(message.llm_message.tool_calls)) return message.llm_message.tool_calls;
+      return [];
+    }
+
+    function getToolCallId(message) {
+      if (!message) return "";
+      if (message.tool_call_id) return message.tool_call_id;
+      if (message.metadata && message.metadata.tool_call_id) return message.metadata.tool_call_id;
+      if (message.content && message.content.tool_call_id) return message.content.tool_call_id;
+      if (message.llm_message && message.llm_message.tool_call_id) return message.llm_message.tool_call_id;
+      return "";
+    }
+
+    function getMessageTokenCount(message) {
+      if (!message) return 0;
+      const estimated = asNumber(message.estimated_tokens);
+      if (estimated !== null) return estimated;
+      if (message.llm_message) return estimateTokens(message.llm_message);
+      return estimateTokens({ role: message.role, content: message.content });
+    }
+
+    function getNestedLlmCallTokenCount(call) {
+      if (!call) return 0;
+      const usage = call.usage || call.response_usage;
+      const usageTotal = usage ? asNumber(usage.total_tokens) : null;
+      if (usageTotal !== null) return usageTotal;
+
+      const messages = Array.isArray(call.messages) ? call.messages : [];
+      const promptTokens = messages.reduce(
+        (total, message) => total + getMessageTokenCount(message),
+        0,
+      );
+      const responseTokens = call.response_content
+        ? estimateTokens({ role: "assistant", content: call.response_content })
+        : 0;
+
+      return promptTokens + responseTokens;
+    }
+
+    function estimateTokens(value) {
+      if (value === null || value === undefined) return 0;
+      const text = typeof value === "string" ? value : compactJson(value);
+      return Math.floor(text.length / 4);
+    }
+
+    function compactJson(value) {
+      try {
+        const json = JSON.stringify(value);
+        return json === undefined ? String(value) : json;
+      } catch {
+        return String(value);
+      }
+    }
+
+    function asNumber(value) {
+      const number = Number(value);
+      return Number.isFinite(number) ? number : null;
+    }
+
+    function formatNumber(value) {
+      return Number(value || 0).toLocaleString("en-US");
+    }
+
+    function getDisplayContent(message) {
+      if (!message) return "";
+      const content = message.content;
+      if (typeof content === "string") return content;
+
+      if (content && typeof content === "object") {
+        if (typeof content.content === "string") return content.content;
+        if (content.content !== undefined && content.content !== null) return contentToText(content.content);
+        if (Array.isArray(content.tool_calls) && content.tool_calls.length) return "(assistant requested tool call)";
+      }
+
+      if (message.llm_message && typeof message.llm_message.content === "string") {
+        return message.llm_message.content;
+      }
+      if (getToolCalls(message).length) return "(assistant requested tool call)";
+      return contentToText(content);
+    }
+
+    function contentToText(content) {
+      if (content === null || content === undefined) return "";
+      if (typeof content === "string") return content;
+      return formatJson(content);
+    }
+
+    function containsError(value) {
+      return typeof value === "string" && /error|failed|traceback|exception/i.test(value);
+    }
+
+    function parseMaybeJson(value) {
+      if (typeof value !== "string") return value;
+      try {
+        return JSON.parse(value);
+      } catch {
+        return value;
+      }
+    }
+
+    function formatJson(value) {
+      try {
+        return JSON.stringify(value, null, 2);
+      } catch {
+        return String(value);
+      }
+    }
+
+    function escapeHtml(value) {
+      return String(value)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }
+  </script>
+</body>
+</html>
