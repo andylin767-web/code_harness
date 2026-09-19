@@ -1,6 +1,6 @@
+import time
 from dataclasses import dataclass, field
 from enum import StrEnum
-import time
 from uuid import uuid4
 
 
@@ -24,11 +24,9 @@ def generate_request_id() -> str:
 @dataclass
 class ProtocolState:
     type: ProtocolType
-    sender: str          # Sender
-    target: str          # Recipient
-    payload: str         # Plan text or shutdown reason
+    sender: str  # Sender
+    target: str  # Recipient
+    payload: str  # Plan text or shutdown reason
     status: ProtocolStatus = ProtocolStatus.PENDING
     request_id: str = field(default_factory=generate_request_id)
-    created_at: float = field(
-        default_factory=lambda: round(time.time(), 3)
-    )
+    created_at: float = field(default_factory=lambda: round(time.time(), 3))

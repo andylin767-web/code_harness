@@ -1,7 +1,7 @@
+import asyncio
 import json
 import tempfile
 import unittest
-import asyncio
 from pathlib import Path
 from unittest.mock import patch
 
@@ -63,6 +63,35 @@ class TracingTests(unittest.TestCase):
 
             self.assertEqual(trace["nested_llm_calls"][0]["file_path"], "core/loop.py")
             self.assertEqual(second_trace["nested_llm_calls"], [])
+
+    def test_goal_stage_trace_is_correlated_sanitized_and_bounded(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch.object(tracing, "TRACE_DIR", Path(tmpdir)):
+                event = tracing.record_goal_stage(
+                    "permission_decided",
+                    goal_id="goal_123",
+                    conversation_id="conv_123",
+                    event_id="event_123",
+                    run_id="run_123",
+                    background_task_id="bg_0001",
+                    details={
+                        "api_key": "must-not-appear",
+                        "command": "TOKEN=must-not-appear " + "x" * 3000,
+                    },
+                )
+
+            trace_path = Path(tmpdir) / "goals" / "goal_123.jsonl"
+            persisted = json.loads(trace_path.read_text(encoding="utf-8"))
+
+            self.assertEqual(persisted["stage"], "permission_decided")
+            self.assertEqual(persisted["event_id"], "event_123")
+            self.assertEqual(persisted["run_id"], "run_123")
+            self.assertEqual(persisted["background_task_id"], "bg_0001")
+            self.assertEqual(persisted["details"]["api_key"], "[redacted]")
+            self.assertNotIn("must-not-appear", json.dumps(persisted))
+            self.assertIn("[truncated]", persisted["details"]["command"])
+            self.assertEqual(event, persisted)
+
 
 if __name__ == "__main__":
     unittest.main()

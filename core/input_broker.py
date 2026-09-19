@@ -1,8 +1,8 @@
+import queue
+import threading
 from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
-import queue
-import threading
 
 
 @dataclass
@@ -115,9 +115,7 @@ class InputBroker:
                     else None
                 )
                 next_request = (
-                    self._permission_requests[0]
-                    if self._permission_requests
-                    else None
+                    self._permission_requests[0] if self._permission_requests else None
                 )
                 show_user_prompt = (
                     request is not None

@@ -1,12 +1,10 @@
 import json
 from collections.abc import Callable, Iterable
 from pathlib import Path
-from typing import Any
 
 from code_harness.mcp.client import MCPClient
 from code_harness.mcp.tool import MCPTool
 from code_harness.tools.tools import ToolRegistry
-
 
 MCPClientFactory = Callable[[], MCPClient]
 

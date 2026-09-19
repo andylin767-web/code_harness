@@ -1,8 +1,8 @@
-from dataclasses import dataclass, field
 import json
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
-from datetime import datetime, timezone
 from uuid import uuid4
 
 
@@ -12,18 +12,15 @@ class MessageType(StrEnum):
     TOOL = "tool"
     SYSTEM = "system"
     SUMMARY = "summary"
-    DEVELOPER ="developer"
+    DEVELOPER = "developer"
+
 
 MAX_TOOL_OUTPUT = 4000
 
 
 class TokenEstimator:
     def estimate_message(self, msg: dict) -> int:
-        payload = {
-            k: v
-            for k, v in msg.items()
-            if v is not None
-        }
+        payload = {k: v for k, v in msg.items() if v is not None}
         return self._estimate(json.dumps(payload, separators=(",", ":")))
 
     def estimate_content(self, content: Any) -> int:
@@ -31,10 +28,10 @@ class TokenEstimator:
             return self._estimate(content)
 
         return self._estimate(json.dumps(content, separators=(",", ":"), default=str))
-    
+
     def _estimate(self, text: str) -> int:
         return len(text) // 4
-    
+
 
 @dataclass(frozen=True)
 class MessageRecord:
@@ -43,7 +40,7 @@ class MessageRecord:
     content: Any
     type: MessageType
     conversation_id: str
-    created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
     metadata: dict[str, Any] = field(default_factory=dict)
     estimated_tokens: int | None = None
 
@@ -210,22 +207,20 @@ class MessageRecord:
             "estimated_tokens": self.estimated_tokens,
             "llm_message": self.to_llm_dict(),
         }
-    
+
 
 TOTAL_CONTEXT_BUDGET = 100000
-SYSTEM_PROMPT_BUDGET= TOTAL_CONTEXT_BUDGET * 0.07
+SYSTEM_PROMPT_BUDGET = TOTAL_CONTEXT_BUDGET * 0.07
 
 
-    
 class ConversationStore:
     def __init__(self):
         self.records: list[MessageRecord] = []
         self.index_by_id: dict[str, int] = {}
         self.summary_indexes_by_conversation: dict[str, list[int]] = {}
         self.system_indexes_by_conversation: dict[str, list[int]] = {}
-       
-    
-    def append_record(self,record: MessageRecord):
+
+    def append_record(self, record: MessageRecord):
         index = len(self.records)
         self.records.append(record)
         self.index_by_id[record.id] = index
@@ -243,21 +238,25 @@ class ConversationStore:
     def get_record(self, message_id):
         index = self.index_by_id.get(message_id)
         return self.records[index] if index is not None else None
-    
+
     def get_active_summary(self, conversation_id):
-        summary_indexes = self.summary_indexes_by_conversation.get(conversation_id) or []
+        summary_indexes = (
+            self.summary_indexes_by_conversation.get(conversation_id) or []
+        )
         return self.records[summary_indexes[-1]] if summary_indexes else None
 
     def get_records_by_conversation_id(self, conversation_id):
-        return  [ msg for msg in self.records if msg.conversation_id == conversation_id]
+        return [msg for msg in self.records if msg.conversation_id == conversation_id]
 
-    def get_records_since(self, conversation_id: str, start_index: int = 0) -> list[MessageRecord]:
+    def get_records_since(
+        self, conversation_id: str, start_index: int = 0
+    ) -> list[MessageRecord]:
         return [
             msg
             for msg in self.records[start_index:]
             if msg.conversation_id == conversation_id
         ]
-    
+
     def get_messages_after(self, conversation_id, latest_summary_msg=None):
         start_index = -1
 
@@ -269,34 +268,31 @@ class ConversationStore:
 
         return [
             msg
-            for msg in self.records[start_index + 1:]
+            for msg in self.records[start_index + 1 :]
             if (
                 msg.conversation_id == conversation_id
                 and msg.type not in {MessageType.SYSTEM, MessageType.SUMMARY}
             )
         ]
-    
+
     def get_active_system_prompt(self, conversation_id):
         indexes = self.system_indexes_by_conversation.get(conversation_id) or []
         return self.records[indexes[-1]] if indexes else None
 
-    
-   
+
 class ContextBuilder:
-    def __init__(self, max_tokens: int= TOTAL_CONTEXT_BUDGET, keep_turns=4):
+    def __init__(self, max_tokens: int = TOTAL_CONTEXT_BUDGET, keep_turns=4):
         self.max_tokens = max_tokens
-        self.keep_turns=keep_turns
+        self.keep_turns = keep_turns
 
     async def build(self, store: ConversationStore, conversation_id: str) -> list[dict]:
         system_msg = store.get_active_system_prompt(conversation_id)
-       
 
-        if system_msg and system_msg.estimated_tokens>=SYSTEM_PROMPT_BUDGET:
+        if system_msg and system_msg.estimated_tokens >= SYSTEM_PROMPT_BUDGET:
             raise ValueError(f"System prompt exceeds budget {SYSTEM_PROMPT_BUDGET}")
-        
-        latest_summary_msg= store.get_active_summary(conversation_id)
-        history_msgs = store.get_messages_after(conversation_id, latest_summary_msg)
 
+        latest_summary_msg = store.get_active_summary(conversation_id)
+        history_msgs = store.get_messages_after(conversation_id, latest_summary_msg)
 
         messages: list[MessageRecord] = []
         if system_msg:
@@ -306,7 +302,7 @@ class ContextBuilder:
             messages.append(latest_summary_msg)
         messages.extend(history_msgs)
         total_token_size = sum(msg.estimated_tokens or 0 for msg in messages)
-        if total_token_size>=self.max_tokens*0.85:
+        if total_token_size >= self.max_tokens * 0.85:
             print(f"compact message since total_token_size: {total_token_size}")
             messages = await self._compact(
                 store=store,
@@ -328,7 +324,9 @@ class ContextBuilder:
         history_msgs: list[MessageRecord],
         keep_turns: int,
     ) -> list[MessageRecord]:
-        compact_msgs, keep_msgs = self._split_messages_by_turns(history_msgs, keep_turns)
+        compact_msgs, keep_msgs = self._split_messages_by_turns(
+            history_msgs, keep_turns
+        )
 
         if not compact_msgs:
             messages = []
@@ -341,12 +339,12 @@ class ContextBuilder:
 
         existing_summary = self._summary_text(latest_summary_msg)
         compact_payload = [msg.to_llm_dict() for msg in compact_msgs]
+        from code_harness.core.config import get_model_id
         from code_harness.memory.message_summarizer import MessageSummarizer
-        from code_harness.models import NVIDIA_NEMOTRON_3_SUPER_120B_A12B
 
         new_summary_content = await MessageSummarizer.summarize_messages(
             MessageSummarizer.summary_prompt,
-            NVIDIA_NEMOTRON_3_SUPER_120B_A12B,
+            get_model_id(),
             compact_payload,
             existing_summary,
         )
@@ -365,7 +363,9 @@ Earlier conversation summary:
             content=summary_content,
             estimated_tokens=TokenEstimator().estimate_message(summary_content),
             metadata={
-                "supersedes_summary_id": latest_summary_msg.id if latest_summary_msg else None,
+                "supersedes_summary_id": latest_summary_msg.id
+                if latest_summary_msg
+                else None,
                 "covers_from_message_id": compact_msgs[0].id,
                 "covers_through_message_id": compact_msgs[-1].id,
                 "created_from_message_ids": [
@@ -404,7 +404,9 @@ Earlier conversation summary:
         return messages[:keep_start], messages[keep_start:]
 
     def _is_synthetic_user_message(self, msg: MessageRecord) -> bool:
-        content = msg.content.get("content") if isinstance(msg.content, dict) else msg.content
+        content = (
+            msg.content.get("content") if isinstance(msg.content, dict) else msg.content
+        )
         return isinstance(content, str) and content.lstrip().startswith("<reminder>")
 
     def _summary_text(self, summary_msg: MessageRecord | None) -> Any:
@@ -419,5 +421,3 @@ Earlier conversation summary:
             )
 
         return summary_msg.content
-
-   

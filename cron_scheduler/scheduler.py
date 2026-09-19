@@ -1,39 +1,32 @@
-
-
-from dataclasses import asdict, dataclass
-from datetime import datetime
 import json
-from pathlib import Path
 import threading
 import time
+from dataclasses import asdict, dataclass
+from datetime import datetime
+from pathlib import Path
 from uuid import uuid4
 
 from code_harness.events.models import CronEvent
 from code_harness.events.queue import EventQueue
 
 
-
-
 @dataclass
 class CronJob:
     id: str
-    cron: str        # "0 9 * * *"
-    prompt: str      # message to inject when fired
+    cron: str  # "0 9 * * *"
+    prompt: str  # message to inject when fired
     recurring: bool  # True = recurring, False = one-shot
-    durable: bool    # True = persist to disk
+    durable: bool  # True = persist to disk
 
 
 class CronScheduler:
-
     def __init__(self, work_dir: Path, event_queue: EventQueue):
         self._jobs: dict[str, CronJob] = {}
         self._lock = threading.Lock()
         self._event_queue = event_queue
         self.DURABLE_PATH = work_dir / ".scheduled_tasks.json"
-        self._last_fired: dict[str, str] = {} 
+        self._last_fired: dict[str, str] = {}
 
-
-    
     def loop(self):
         while True:
             time.sleep(1)
@@ -75,8 +68,9 @@ class CronScheduler:
             step = int(field[2:])
             return step > 0 and value % step == 0
         if "," in field:
-            return any(self._cron_field_matches(f.strip(), value)
-                    for f in field.split(","))
+            return any(
+                self._cron_field_matches(f.strip(), value) for f in field.split(",")
+            )
         if "-" in field:
             lo, hi = field.split("-", 1)
             return int(lo) <= value <= int(hi)
@@ -111,7 +105,6 @@ class CronScheduler:
             return dom_ok
         return dom_ok or dow_ok
 
-
     def _validate_cron_field(self, field: str, lo: int, hi: int) -> str | None:
         """Validate a single cron field value is within [lo, hi]."""
         if field == "*":
@@ -127,7 +120,8 @@ class CronScheduler:
         if "," in field:
             for part in field.split(","):
                 err = self._validate_cron_field(part.strip(), lo, hi)
-                if err: return err
+                if err:
+                    return err
             return None
         if "-" in field:
             parts = field.split("-", 1)
@@ -146,14 +140,14 @@ class CronScheduler:
             return f"Value {val} out of bounds [{lo}-{hi}]"
         return None
 
-    def validate_cron(self,cron_expr: str) -> str | None:
+    def validate_cron(self, cron_expr: str) -> str | None:
         """Validate a cron expression. Returns error message or None."""
         fields = cron_expr.strip().split()
         if len(fields) != 5:
             return f"Expected 5 fields, got {len(fields)}"
         bounds = [(0, 59), (0, 23), (1, 31), (1, 12), (0, 6)]
         names = ["minute", "hour", "day-of-month", "month", "day-of-week"]
-        for i, (field, (lo, hi), name) in enumerate(zip(fields, bounds, names)):
+        for field, (lo, hi), name in zip(fields, bounds, names, strict=True):
             err = self._validate_cron_field(field, lo, hi)
             if err:
                 return f"{name}: {err}"
@@ -174,7 +168,9 @@ class CronScheduler:
                 job = CronJob(**j)
                 err = self.validate_cron(job.cron)
                 if err:
-                    print(f"  \033[31m[cron] skipping invalid job {job.id}: {err}\033[0m")
+                    print(
+                        f"  \033[31m[cron] skipping invalid job {job.id}: {err}\033[0m"
+                    )
                     continue
                 self._jobs[job.id] = job
             valid = [j for j in jobs if j["id"] in self._jobs]
@@ -183,22 +179,22 @@ class CronScheduler:
         except Exception:
             pass
 
-    def schedule_job(self, job: CronJob)->str:
+    def schedule_job(self, job: CronJob) -> str:
         err = self.validate_cron(job.cron)
         if err:
             return err
-        
+
         with self._lock:
             self._jobs[job.id] = job
         if job.durable:
             self.save_durable_jobs()
 
         return f"{job.id} is scheduled"
-    
+
     def list_jobs(self) -> list[CronJob]:
         with self._lock:
             return list(self._jobs.values())
-    
+
     def list_jobs_text(self) -> str:
         jobs = self.list_jobs()
 
@@ -209,16 +205,13 @@ class CronScheduler:
         for job in jobs:
             tag = "recurring" if job.recurring else "one-shot"
             dur = "durable" if job.durable else "session"
-            lines.append(
-                f"  {job.id}: '{job.cron}' → {job.prompt[:40]} "
-                f"[{tag}, {dur}]"
-            )
+            lines.append(f"  {job.id}: '{job.cron}' → {job.prompt[:40]} [{tag}, {dur}]")
 
         return "\n".join(lines)
-    
+
     def remove_job(self, job_id: str) -> CronJob | None:
         with self._lock:
-            return self._jobs.pop(job_id, None) 
+            return self._jobs.pop(job_id, None)
 
 
 def start_cron_scheduler_daemon(cron_scheduler: CronScheduler) -> threading.Thread:

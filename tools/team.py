@@ -4,9 +4,9 @@ from pydantic import BaseModel, Field
 
 from code_harness.core.agent_runtime import get_lead_agent
 from code_harness.core.permissions import PROJECT_ROOT
+from code_harness.team.lead_inbox import consume_lead_inbox
 from code_harness.team.message_bus import MessageBus
 from code_harness.team.message_type import MessageType
-from code_harness.team.lead_inbox import consume_lead_inbox
 from code_harness.team.protocol_manager import ProtocolManager
 from code_harness.team.protocol_runtime import get_protocol_manager
 from code_harness.team.protocol_state import ProtocolType
@@ -35,9 +35,7 @@ class ProtocolTool(SenderTool):
     ):
         super().__init__(sender)
         self.protocol_manager = (
-            protocol_manager
-            if protocol_manager is not None
-            else get_protocol_manager()
+            protocol_manager if protocol_manager is not None else get_protocol_manager()
         )
 
 

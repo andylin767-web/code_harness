@@ -3,11 +3,10 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import Mock, patch
 
-from pydantic import ValidationError
-
 from code_harness.team.message_type import MessageType
 from code_harness.team.send import Sender
 from code_harness.tools.team import RequestPlanInput, RequestPlanTool
+from pydantic import ValidationError
 
 
 class RequestPlanInputTests(unittest.TestCase):
@@ -25,12 +24,14 @@ class RequestPlanInputTests(unittest.TestCase):
             RequestPlanInput()
 
     def test_tool_creates_its_own_sender(self):
-        with TemporaryDirectory() as tmpdir:
-            with patch(
+        with (
+            TemporaryDirectory() as tmpdir,
+            patch(
                 "code_harness.tools.team.PROJECT_ROOT",
                 Path(tmpdir),
-            ):
-                tool = RequestPlanTool()
+            ),
+        ):
+            tool = RequestPlanTool()
 
         self.assertIsInstance(tool.sender, Sender)
 
@@ -48,8 +49,7 @@ class RequestPlanInputTests(unittest.TestCase):
         sender.send_from_lead.assert_called_once_with(
             to="reviewer",
             content=(
-                "Please create a plan for this task: "
-                "Plan the protocol integration"
+                "Please create a plan for this task: Plan the protocol integration"
             ),
             msg_type=MessageType.MESSAGE,
         )

@@ -10,6 +10,8 @@ from typing import Any
 class BackgroundTaskRunner:
     """Run slow tool blocks in daemon threads and collect notifications."""
 
+    MAX_NOTIFICATION_OUTPUT = 400
+
     SLOW_COMMAND_PATTERNS = (
         r"\b(?:pip|pip3)\s+install\b",
         r"\bnpm\s+(?:install|test|run\s+build)\b",
@@ -87,14 +89,7 @@ class BackgroundTaskRunner:
             with self._lock:
                 task = self._tasks.pop(bg_id)
                 output = self._results.pop(bg_id, "")
-            notifications.append(
-                f"<task_notification>\n"
-                f"  <task_id>{bg_id}</task_id>\n"
-                f"  <status>{task['status']}</status>\n"
-                f"  <command>{task['command']}</command>\n"
-                f"  <summary>{output[:200]}</summary>\n"
-                f"</task_notification>"
-            )
+            notifications.append(self._notification(bg_id, task, output))
         return notifications
 
     def has_pending(self) -> bool:
@@ -125,13 +120,37 @@ class BackgroundTaskRunner:
         with self._lock:
             task = self._tasks.pop(bg_id)
             output = self._results.pop(bg_id, "")
+        return self._notification(bg_id, task, output)
+
+    @classmethod
+    def _notification(
+        cls,
+        bg_id: str,
+        task: dict[str, str],
+        output: str,
+    ) -> str:
+        summarized_output = cls._summarize_output(output)
         return (
             f"<task_notification>\n"
             f"  <task_id>{bg_id}</task_id>\n"
             f"  <status>{task['status']}</status>\n"
             f"  <command>{task['command']}</command>\n"
-            f"  <summary>{output[:200]}</summary>\n"
+            f"  <summary>{summarized_output}</summary>\n"
             f"</task_notification>"
+        )
+
+    @classmethod
+    def _summarize_output(cls, output: str) -> str:
+        """Preserve the beginning and end of long background output."""
+        if len(output) <= cls.MAX_NOTIFICATION_OUTPUT:
+            return output
+
+        head_length = cls.MAX_NOTIFICATION_OUTPUT // 2
+        tail_length = cls.MAX_NOTIFICATION_OUTPUT - head_length
+        return (
+            f"{output[:head_length]}\n"
+            "... truncated background output ...\n"
+            f"{output[-tail_length:]}"
         )
 
     @staticmethod

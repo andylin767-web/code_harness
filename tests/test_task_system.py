@@ -13,9 +13,7 @@ from code_harness.tools.tools import get_tools
 class TaskSystemTests(unittest.TestCase):
     def test_task_tools_are_registered(self):
         lead_tools = {tool.name for tool in get_tools("parent").values()}
-        teammate_tools = {
-            tool.name for tool in get_tools("sub_agent").values()
-        }
+        teammate_tools = {tool.name for tool in get_tools("sub_agent").values()}
 
         self.assertIn("task_create", lead_tools)
         self.assertIn("task_get", lead_tools)
@@ -32,16 +30,24 @@ class TaskSystemTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             manager = TaskManager(Path(tmpdir))
 
-            created = json.loads(manager.create_task("Build thing", "Use local patterns"))
+            created = json.loads(
+                manager.create_task("Build thing", "Use local patterns")
+            )
             task_id = created["id"]
 
             self.assertEqual(created["status"], "pending")
-            self.assertEqual(manager.claim_task(task_id, owner="agent-1"), "Claimed " + task_id + " (Build thing)")
+            self.assertEqual(
+                manager.claim_task(task_id, owner="agent-1"),
+                "Claimed " + task_id + " (Build thing)",
+            )
             claimed = json.loads(manager.get_task(task_id))
             self.assertEqual(claimed["status"], "in_progress")
             self.assertEqual(claimed["owner"], "agent-1")
 
-            self.assertEqual(manager.complete_task(task_id, owner="agent-1"), "Completed " + task_id + " (Build thing)")
+            self.assertEqual(
+                manager.complete_task(task_id, owner="agent-1"),
+                "Completed " + task_id + " (Build thing)",
+            )
             completed = json.loads(manager.get_task(task_id))
             self.assertEqual(completed["status"], "completed")
 
@@ -50,12 +56,16 @@ class TaskSystemTests(unittest.TestCase):
             manager = TaskManager(Path(tmpdir))
 
             dependency = json.loads(manager.create_task("Dependency", ""))
-            dependent = json.loads(manager.create_task("Dependent", "", blockedBy=[dependency["id"]]))
+            dependent = json.loads(
+                manager.create_task("Dependent", "", blockedBy=[dependency["id"]])
+            )
 
             self.assertIn("Blocked by", manager.claim_task(dependent["id"]))
 
             manager.complete_task(dependency["id"])
-            self.assertIn("Claimed", manager.claim_task(dependent["id"], owner="agent-1"))
+            self.assertIn(
+                "Claimed", manager.claim_task(dependent["id"], owner="agent-1")
+            )
 
     def test_concurrent_claims_allow_only_one_owner(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -72,9 +82,7 @@ class TaskSystemTests(unittest.TestCase):
 
             first_manager = SlowTaskManager(tasks_dir)
             second_manager = TaskManager(tasks_dir)
-            created = json.loads(
-                first_manager.create_task("Exclusive task", "")
-            )
+            created = json.loads(first_manager.create_task("Exclusive task", ""))
 
             with ThreadPoolExecutor(max_workers=2) as executor:
                 first_claim = executor.submit(

@@ -70,13 +70,21 @@ class MessageRecordFactoryTests(unittest.TestCase):
 
     def test_conversation_store_get_records_since_filters_by_conversation(self):
         store = ConversationStore()
-        store.append_record(MessageRecord.user(conversation_id="conversation-1", content="first"))
+        store.append_record(
+            MessageRecord.user(conversation_id="conversation-1", content="first")
+        )
         start_index = len(store.records)
-        expected = MessageRecord.user(conversation_id="conversation-1", content="second")
+        expected = MessageRecord.user(
+            conversation_id="conversation-1", content="second"
+        )
         store.append_record(expected)
-        store.append_record(MessageRecord.user(conversation_id="conversation-2", content="other"))
+        store.append_record(
+            MessageRecord.user(conversation_id="conversation-2", content="other")
+        )
 
-        self.assertEqual(store.get_records_since("conversation-1", start_index), [expected])
+        self.assertEqual(
+            store.get_records_since("conversation-1", start_index), [expected]
+        )
 
 
 if __name__ == "__main__":

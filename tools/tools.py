@@ -1,11 +1,12 @@
+import importlib
 import inspect
 import json
-import importlib
 import pkgutil
 from abc import ABC, abstractmethod
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, ClassVar, Iterable, Literal
+from typing import Any, ClassVar, Literal
 
 from pydantic import BaseModel, ValidationError
 
@@ -112,9 +113,7 @@ class ToolRegistry:
         collisions = set(names).intersection(self._tools)
         conflicts = sorted(duplicate_names | collisions)
         if conflicts:
-            raise ValueError(
-                f"Tool name collision: {', '.join(conflicts)}"
-            )
+            raise ValueError(f"Tool name collision: {', '.join(conflicts)}")
         for tool in pending:
             self._tools[tool.name] = tool
 
@@ -149,7 +148,9 @@ class ToolRegistry:
         package = importlib.import_module(package_name)
         if not hasattr(package, "__path__"):
             return
-        for module_info in pkgutil.walk_packages(package.__path__, f"{package.__name__}."):
+        for module_info in pkgutil.walk_packages(
+            package.__path__, f"{package.__name__}."
+        ):
             importlib.import_module(module_info.name)
 
 

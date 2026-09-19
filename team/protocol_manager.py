@@ -1,8 +1,8 @@
-from dataclasses import asdict
 import json
-from pathlib import Path
 import threading
 import time
+from dataclasses import asdict
+from pathlib import Path
 
 from code_harness.team.protocol_state import (
     ProtocolState,
@@ -11,16 +11,11 @@ from code_harness.team.protocol_state import (
     generate_request_id,
 )
 
-
-DEFAULT_PROTOCOL_PATH = (
-    Path(__file__).resolve().parents[1] / ".protocol_requests.json"
-)
+DEFAULT_PROTOCOL_PATH = Path(__file__).resolve().parents[1] / ".protocol_requests.json"
 
 RESPONSE_TYPE_BY_REQUEST_TYPE = {
     ProtocolType.SHUTDOWN_REQUEST: ProtocolType.SHUTDOWN_RESPONSE,
-    ProtocolType.PLAN_APPROVAL_REQUEST: (
-        ProtocolType.PLAN_APPROVAL_RESPONSE
-    ),
+    ProtocolType.PLAN_APPROVAL_REQUEST: (ProtocolType.PLAN_APPROVAL_RESPONSE),
 }
 
 
@@ -52,8 +47,7 @@ class ProtocolManager:
         protocol_type = ProtocolType(type)
         if protocol_type not in RESPONSE_TYPE_BY_REQUEST_TYPE:
             raise ValueError(
-                f"Cannot create a request with response type: "
-                f"{protocol_type.value}"
+                f"Cannot create a request with response type: {protocol_type.value}"
             )
         state = ProtocolState(
             type=protocol_type,
@@ -62,16 +56,12 @@ class ProtocolManager:
             payload=payload,
             request_id=request_id or generate_request_id(),
             created_at=(
-                round(time.time(), 3)
-                if created_at is None
-                else round(created_at, 3)
+                round(time.time(), 3) if created_at is None else round(created_at, 3)
             ),
         )
         with self._lock:
             if state.request_id in self.pending_requests:
-                raise ValueError(
-                    f"Protocol request already exists: {state.request_id}"
-                )
+                raise ValueError(f"Protocol request already exists: {state.request_id}")
             self.pending_requests[state.request_id] = state
         return state
 
@@ -103,15 +93,10 @@ class ProtocolManager:
         with self._lock:
             state = self.pending_requests.get(request_id)
             if state is None:
-                print(
-                    f"  \033[31m[protocol] unknown request_id: "
-                    f"{request_id}\033[0m"
-                )
+                print(f"  \033[31m[protocol] unknown request_id: {request_id}\033[0m")
                 return None
 
-            expected_response_type = RESPONSE_TYPE_BY_REQUEST_TYPE.get(
-                state.type
-            )
+            expected_response_type = RESPONSE_TYPE_BY_REQUEST_TYPE.get(state.type)
             try:
                 actual_response_type = ProtocolType(response_type)
             except ValueError:
@@ -130,9 +115,7 @@ class ProtocolManager:
                 return None
 
             target_status = (
-                ProtocolStatus.APPROVED
-                if approve
-                else ProtocolStatus.REJECTED
+                ProtocolStatus.APPROVED if approve else ProtocolStatus.REJECTED
             )
             resolved, transitioned = self._try_transition(
                 request_id,
@@ -180,9 +163,7 @@ class ProtocolManager:
             try:
                 return self.pending_requests.pop(request_id)
             except KeyError as exc:
-                raise KeyError(
-                    f"Protocol request not found: {request_id}"
-                ) from exc
+                raise KeyError(f"Protocol request not found: {request_id}") from exc
 
     def expire_requests(self, now: float | None = None) -> list[ProtocolState]:
         cutoff = (time.time() if now is None else now) - self.request_ttl_seconds
@@ -192,10 +173,7 @@ class ProtocolManager:
                 for request_id, state in self.pending_requests.items()
                 if state.created_at <= cutoff
             ]
-            return [
-                self.pending_requests.pop(request_id)
-                for request_id in expired_ids
-            ]
+            return [self.pending_requests.pop(request_id) for request_id in expired_ids]
 
     def save(self) -> Path:
         with self._lock:
@@ -263,8 +241,7 @@ class ProtocolManager:
         )
         if not transitioned:
             raise ValueError(
-                f"Cannot transition {request_id} from "
-                f"{state.status} to {target}"
+                f"Cannot transition {request_id} from {state.status} to {target}"
             )
         return state
 

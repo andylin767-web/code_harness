@@ -1,4 +1,5 @@
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from code_harness.team.message_bus import MessageBus
 from code_harness.team.message_type import MessageKind, MessageType
@@ -42,7 +43,7 @@ class Sender:
     def peek(self, agent: str) -> bool:
         """Return whether the agent currently has unread mailbox messages."""
         return self.bus.peek(agent)
-    
+
     def make_teammate_sender(
         self,
         name: str,

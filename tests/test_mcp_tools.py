@@ -112,9 +112,7 @@ class MCPToolTests(IsolatedAsyncioTestCase):
             },
         )
         registry = ToolRegistry()
-        await MCPRegistry({"errors": lambda: client}).connect_mcp(
-            "errors", registry
-        )
+        await MCPRegistry({"errors": lambda: client}).connect_mcp("errors", registry)
 
         result = await run_tool(
             registry.get("mcp__errors__fail"),

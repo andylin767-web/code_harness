@@ -1,7 +1,7 @@
 import json
-from pathlib import Path
 import threading
 import time
+from pathlib import Path
 from typing import Any
 
 from code_harness.events.models import EventType, new_event
@@ -12,12 +12,10 @@ from code_harness.team.message_type import (
     message_type_value,
 )
 
-
 _mailbox_lock = threading.RLock()
 
 
 class MessageBus:
-
     def __init__(self, mail_box_dir: Path):
         self.mailbox_dir = mail_box_dir
         self.mailbox_dir.mkdir(parents=True, exist_ok=True)
@@ -41,20 +39,15 @@ class MessageBus:
         }
 
         inbox_path = self.mailbox_dir / f"{to_agent}.jsonl"
-        with _mailbox_lock:
-            with inbox_path.open("a", encoding="utf-8") as file:
-                file.write(json.dumps(message) + "\n")
+        with _mailbox_lock, inbox_path.open("a", encoding="utf-8") as file:
+            file.write(json.dumps(message) + "\n")
 
         event_queue = get_event_queue()
         if to_agent == "lead" and event_queue is not None:
             event_queue.put(
                 new_event(
                     EventType.TEAMMATE_MESSAGE,
-                    (
-                        "<teammate_message>\n"
-                        f"{json.dumps(message)}\n"
-                        "</teammate_message>"
-                    ),
+                    (f"<teammate_message>\n{json.dumps(message)}\n</teammate_message>"),
                     source=from_agent,
                     created_at=str(message["ts"]),
                     metadata={"message_type": wire_type},

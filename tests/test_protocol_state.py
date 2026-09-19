@@ -1,5 +1,5 @@
-import unittest
 import time
+import unittest
 
 from code_harness.team.protocol_state import (
     ProtocolState,

@@ -3,7 +3,6 @@ import threading
 from code_harness.team.protocol_manager import ProtocolManager
 from code_harness.team.protocol_state import ProtocolState, ProtocolType
 
-
 _lock = threading.RLock()
 _protocol_manager: ProtocolManager | None = None
 

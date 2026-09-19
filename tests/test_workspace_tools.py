@@ -95,7 +95,8 @@ class WorkspaceToolTests(IsolatedAsyncioTestCase):
             )
 
             self.assertIsNone(result.error)
-            self.assertEqual(Path(result.content).resolve(), root)
+            self.assertIn("Exit code: 0", result.content)
+            self.assertIn(f"Stdout:\n{root}", result.content)
 
     async def test_bash_rejects_cwd_outside_workspace(self):
         with TemporaryDirectory() as workspace, TemporaryDirectory() as outside:
@@ -121,4 +122,5 @@ class WorkspaceToolTests(IsolatedAsyncioTestCase):
             )
 
             self.assertIsNone(result.error)
-            self.assertEqual(Path(result.content).resolve(), subdirectory)
+            self.assertIn("Exit code: 0", result.content)
+            self.assertIn(f"Stdout:\n{subdirectory}", result.content)

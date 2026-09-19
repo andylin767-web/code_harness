@@ -11,6 +11,7 @@ from code_harness.events.models import EventType, new_event
 from code_harness.events.processor import QueueProcessor
 from code_harness.events.queue import EventQueue
 from code_harness.events.runtime import set_event_queue
+from code_harness.memory.context import ConversationStore, MessageRecord
 from code_harness.team.message_bus import MessageBus
 
 
@@ -18,7 +19,7 @@ class FakeLoop:
     def __init__(self):
         self.messages = []
 
-    async def run(self, conversation_store, conversation_id, message):
+    async def run(self, conversation_store, conversation_id, message, **kwargs):
         self.messages.append(message)
         return f"handled: {message}"
 
@@ -85,6 +86,53 @@ class EventQueueTests(unittest.TestCase):
             processor._process_once()
 
             self.assertEqual(future.result(timeout=0), "handled: hello")
+
+    def test_processor_saves_trace_for_background_event(self):
+        class RecordingLoop:
+            async def run(
+                self,
+                conversation_store,
+                conversation_id,
+                message,
+                **kwargs,
+            ):
+                conversation_store.append_record(
+                    MessageRecord.user(
+                        conversation_id=conversation_id,
+                        content=message,
+                    )
+                )
+                return "handled"
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            event_queue = EventQueue(Path(tmpdir))
+            trace_saver = Mock(return_value=Path(tmpdir) / "trace.json")
+            store = ConversationStore()
+            processor = QueueProcessor(
+                event_queue=event_queue,
+                loop=RecordingLoop(),
+                conversation_store=store,
+                conversation_id="conversation-1",
+                run_lock=threading.Lock(),
+                trace_saver=trace_saver,
+            )
+            event_queue.put(
+                new_event(
+                    EventType.BACKGROUND_TASK,
+                    "<task_notification>done</task_notification>",
+                    source="background-task",
+                    created_at="2026-09-11T12:00:00Z",
+                    metadata={"run_id": "run-background"},
+                )
+            )
+
+            processor._process_once()
+
+            trace_saver.assert_called_once()
+            arguments = trace_saver.call_args.kwargs
+            self.assertEqual(arguments["run_id"], "run-background")
+            self.assertEqual(arguments["trace_type"], "event_background_task")
+            self.assertEqual(len(arguments["messages"]), 1)
 
     def test_processor_refreshes_waiting_user_prompt_after_event(self):
         with tempfile.TemporaryDirectory() as tmpdir:

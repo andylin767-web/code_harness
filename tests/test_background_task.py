@@ -58,6 +58,17 @@ class BackgroundTaskRunnerTests(unittest.TestCase):
         self.assertIn("<status>failed</status>", notification)
         self.assertIn("<summary>RuntimeError: boom</summary>", notification)
 
+    def test_long_output_preserves_beginning_and_end(self):
+        output = "BEGIN-EVIDENCE-" + ("x" * 1_000) + "-END-EVIDENCE"
+        runner = BackgroundTaskRunner(lambda block: ToolLikeResult(output))
+
+        runner.start(Block("call-1", {"command": "pytest"}))
+        notification = self._wait_for_notifications(runner)[0]
+
+        self.assertIn("BEGIN-EVIDENCE", notification)
+        self.assertIn("END-EVIDENCE", notification)
+        self.assertIn("truncated background output", notification)
+
     def test_should_run_background_uses_flag_and_slow_command_heuristic(self):
         runner = BackgroundTaskRunner(lambda block: "unused")
 
@@ -74,12 +85,7 @@ class BackgroundTaskRunnerTests(unittest.TestCase):
         self.assertFalse(
             runner.should_run_background(
                 "bash",
-                {
-                    "command": (
-                        "cd /project/test_workspace && "
-                        "python3 config_loader.py"
-                    )
-                },
+                {"command": ("cd /project/test_workspace && python3 config_loader.py")},
             )
         )
 

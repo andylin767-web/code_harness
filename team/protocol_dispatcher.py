@@ -1,6 +1,6 @@
 import json
 from collections.abc import Callable
-from typing import Any, TypeAlias
+from typing import Any
 
 from code_harness.team.message_type import (
     MessageKind,
@@ -11,14 +11,13 @@ from code_harness.team.protocol_manager import ProtocolManager
 from code_harness.team.protocol_state import ProtocolState, ProtocolType
 from code_harness.team.send import Sender
 
-
-TeamMessage: TypeAlias = dict[str, Any]
-ConversationMessage: TypeAlias = dict[str, Any]
-TeammateHandler: TypeAlias = Callable[
+type TeamMessage = dict[str, Any]
+type ConversationMessage = dict[str, Any]
+type TeammateHandler = Callable[
     [str, TeamMessage, list[ConversationMessage]],
     bool,
 ]
-LeadHandler: TypeAlias = Callable[
+type LeadHandler = Callable[
     [TeamMessage, list[ConversationMessage]],
     bool,
 ]
@@ -146,10 +145,7 @@ class ProtocolDispatcher:
         if approve:
             content = "[Plan approved] Proceed with the task."
         else:
-            content = (
-                "[Plan rejected] Feedback: "
-                f"{message.get('content', '')}"
-            )
+            content = f"[Plan rejected] Feedback: {message.get('content', '')}"
         messages.append({"role": "user", "content": content})
         return False
 
@@ -256,13 +252,9 @@ class ProtocolDispatcher:
             existing = self.protocol_manager.get_request(request_id)
             if existing is not None:
                 if existing.type is not ProtocolType.PLAN_APPROVAL_REQUEST:
-                    raise ValueError(
-                        f"Request {request_id} is not a plan request."
-                    )
+                    raise ValueError(f"Request {request_id} is not a plan request.")
                 if existing.sender != sender:
-                    raise ValueError(
-                        f"Request {request_id} belongs to another sender."
-                    )
+                    raise ValueError(f"Request {request_id} belongs to another sender.")
                 if existing.payload != plan:
                     raise ValueError(
                         f"Request {request_id} has conflicting plan content."

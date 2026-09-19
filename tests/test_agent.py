@@ -45,12 +45,8 @@ class AgentTests(unittest.TestCase):
 
     def test_agents_have_independent_workspace_roots(self):
         with TemporaryDirectory() as first, TemporaryDirectory() as second:
-            first_agent = Agent(
-                "first", "developer", "work", object(), "", "model"
-            )
-            second_agent = Agent(
-                "second", "developer", "work", object(), "", "model"
-            )
+            first_agent = Agent("first", "developer", "work", object(), "", "model")
+            second_agent = Agent("second", "developer", "work", object(), "", "model")
 
             first_agent.set_workspace_root(Path(first))
             second_agent.set_workspace_root(Path(second))

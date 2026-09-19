@@ -10,12 +10,11 @@ class ReadFileInput(BaseModel):
 
 
 class ReadFile(BaseTool):
-    name='read_file'
-    description='read file content from the file path'
+    name = "read_file"
+    description = "read file content from the file path"
     input_model = ReadFileInput
     project_path_fields = {"path"}
 
-
-    def run(self, arguments : ReadFileInput )->str:
-        with open(os.path.expanduser(arguments.path), "r") as f:
-                return f.read()
+    def run(self, arguments: ReadFileInput) -> str:
+        with open(os.path.expanduser(arguments.path)) as f:
+            return f.read()

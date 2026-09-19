@@ -18,9 +18,7 @@ class TeamMessageToolTests(unittest.TestCase):
         sender.send_from_lead.return_value = "Sent message to reviewer"
         tool = SendMessageTool(sender)
 
-        result = tool.run(
-            SendMessageInput(to="reviewer", content="Please review this")
-        )
+        result = tool.run(SendMessageInput(to="reviewer", content="Please review this"))
 
         sender.send_from_lead.assert_called_once_with(
             to="reviewer",

@@ -6,7 +6,6 @@ from code_harness.team.message_bus import MessageBus
 from code_harness.team.protocol_runtime import match_response
 from code_harness.team.protocol_state import ProtocolState, ProtocolType
 
-
 ResponseMatcher = Callable[
     [ProtocolType | str, str, bool],
     ProtocolState | None,

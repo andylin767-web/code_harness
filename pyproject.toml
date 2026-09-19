@@ -1,0 +1,36 @@
+[tool.ruff]
+target-version = "py312"
+line-length = 88
+force-exclude = true
+extend-exclude = [".worktrees"]
+
+[tool.ruff.lint]
+select = [
+    "B",
+    "C4",
+    "E4",
+    "E7",
+    "E9",
+    "F",
+    "I",
+    "PIE",
+    "RUF",
+    "SIM",
+    "UP",
+]
+# Tool metadata is intentionally declared as mutable class-level configuration.
+ignore = ["RUF012"]
+
+[tool.ruff.lint.per-file-ignores]
+# This test installs a lightweight litellm stub before importing the loop.
+"tests/test_loop_refactor.py" = ["E402"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+testpaths = ["tests"]
+pythonpath = [".."]

@@ -48,9 +48,55 @@
       letter-spacing: 0;
     }
 
-    input[type="file"] {
+    .controls {
+      align-items: end;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px 20px;
+    }
+
+    .control {
+      display: grid;
+      gap: 4px;
+    }
+
+    .control label {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 650;
+      text-transform: uppercase;
+    }
+
+    input[type="file"],
+    select {
       display: block;
       max-width: 100%;
+    }
+
+    button {
+      background: var(--text);
+      border: 0;
+      border-radius: 6px;
+      color: white;
+      cursor: pointer;
+      font: inherit;
+      font-weight: 650;
+      padding: 7px 12px;
+    }
+
+    .hint,
+    .load-status {
+      color: var(--muted);
+      font-size: 13px;
+      margin: 8px 0 0;
+    }
+
+    .load-status.error {
+      color: var(--error);
+    }
+
+    [hidden] {
+      display: none !important;
     }
 
     main {
@@ -92,6 +138,42 @@
     .message {
       margin-bottom: 14px;
       overflow: hidden;
+    }
+
+    .timeline {
+      border-left: 3px solid var(--line);
+      margin-left: 10px;
+      padding-left: 18px;
+    }
+
+    .timeline .message {
+      position: relative;
+    }
+
+    .timeline .message::before {
+      background: var(--panel);
+      border: 3px solid var(--unknown);
+      border-radius: 50%;
+      content: "";
+      height: 12px;
+      left: -27px;
+      position: absolute;
+      top: 15px;
+      width: 12px;
+    }
+
+    .timeline .timeline-goal::before { border-color: var(--system); }
+    .timeline .timeline-message::before { border-color: var(--user); }
+    .timeline .timeline-run::before { border-color: var(--assistant); }
+
+    .outcome {
+      background: #eefbf3;
+      border-color: #86d5a5;
+    }
+
+    .outcome.error-outcome {
+      background: #fff6ed;
+      border-color: #f5a97f;
     }
 
     .message-header {
@@ -204,16 +286,32 @@
 <body>
   <header>
     <h1>Code Harness Trace Viewer</h1>
-    <input id="fileInput" type="file" accept="application/json,.json">
+    <div class="controls">
+      <div class="control">
+        <label for="fileInput">Trace files</label>
+        <input id="fileInput" type="file" multiple accept="application/json,application/x-ndjson,.json,.jsonl">
+      </div>
+      <div class="control">
+        <label for="folderInput">Entire traces folder</label>
+        <input id="folderInput" type="file" multiple webkitdirectory directory accept="application/json,application/x-ndjson,.json,.jsonl">
+      </div>
+      <div id="goalPicker" class="control" hidden>
+        <label for="goalSelect">Goal</label>
+        <select id="goalSelect"></select>
+      </div>
+      <button id="demoButton" type="button">Load demo</button>
+    </div>
+    <p class="hint">For a unified timeline, choose the entire <code>traces</code> folder or select a goal JSONL together with its trace JSON files.</p>
+    <p id="loadStatus" class="load-status"></p>
   </header>
 
   <main>
     <section id="summary" class="summary"></section>
-    <h2 class="section-title">Messages</h2>
+    <h2 id="primaryTitle" class="section-title">Messages</h2>
     <section id="messages">
-      <div class="placeholder">Choose a trace JSON file from <code>code_harness/traces/</code>.</div>
+      <div class="placeholder">Choose a trace JSON or JSONL file from <code>code_harness/traces/</code>.</div>
     </section>
-    <h2 class="section-title">Nested LLM Calls</h2>
+    <h2 id="nestedTitle" class="section-title">Nested LLM Calls</h2>
     <section id="nestedLlmCalls">
       <div class="placeholder">Nested LLM calls will appear here when present in the trace.</div>
     </section>
@@ -221,25 +319,429 @@
 
   <script>
     const fileInput = document.getElementById("fileInput");
+    const folderInput = document.getElementById("folderInput");
+    const goalPickerEl = document.getElementById("goalPicker");
+    const goalSelectEl = document.getElementById("goalSelect");
+    const demoButton = document.getElementById("demoButton");
+    const loadStatusEl = document.getElementById("loadStatus");
     const summaryEl = document.getElementById("summary");
     const messagesEl = document.getElementById("messages");
     const nestedLlmCallsEl = document.getElementById("nestedLlmCalls");
+    const primaryTitleEl = document.getElementById("primaryTitle");
+    const nestedTitleEl = document.getElementById("nestedTitle");
+    let loadedEntries = [];
 
-    fileInput.addEventListener("change", async (event) => {
-      const file = event.target.files && event.target.files[0];
-      if (!file) return;
+    fileInput.addEventListener("change", loadSelectedFiles);
+    folderInput.addEventListener("change", loadSelectedFiles);
+    goalSelectEl.addEventListener("change", renderSelectedGoal);
+    demoButton.addEventListener("click", loadDemo);
+
+    function loadDemo() {
+      const goalId = "goal_demo";
+      const conversationId = "conv_demo";
+      const goalEvents = [
+        { stage: "goal_set", timestamp: "2026-09-14T10:00:00-04:00", goal_id: goalId, conversation_id: conversationId, details: { condition: "pytest exits with code 0" } },
+        { stage: "worker_started", timestamp: "2026-09-14T10:00:01-04:00", goal_id: goalId, conversation_id: conversationId, event_id: "event_user_demo", run_id: "run_user_demo", details: { event_type: "user", worker_model: "openrouter/example/model" } },
+        { stage: "worker_deferred", timestamp: "2026-09-14T10:00:04-04:00", goal_id: goalId, conversation_id: conversationId, event_id: "event_user_demo", run_id: "run_user_demo", background_task_id: "bg_0001", details: { tool: "bash", arguments: { command: "python3 -m pytest -q" } } },
+        { stage: "background_completed", timestamp: "2026-09-14T10:00:07-04:00", goal_id: goalId, conversation_id: conversationId, event_id: "event_user_demo", run_id: "run_user_demo", background_task_id: "bg_0001", details: { status: "completed", command: "python3 -m pytest -q", exit_code: 0 } },
+        { stage: "worker_started", timestamp: "2026-09-14T10:00:08-04:00", goal_id: goalId, conversation_id: conversationId, event_id: "event_background_demo", run_id: "run_background_demo", details: { event_type: "background_task", worker_model: "openrouter/example/model" } },
+        { stage: "evaluation_completed", timestamp: "2026-09-14T10:00:11-04:00", goal_id: goalId, conversation_id: conversationId, event_id: "event_background_demo", run_id: "run_background_demo", details: { action: "allow", reason: "The test command exited with code 0 and all 201 tests passed.", ok: true, impossible: false } },
+        { stage: "goal_completed", timestamp: "2026-09-14T10:00:12-04:00", goal_id: goalId, conversation_id: conversationId, event_id: "event_background_demo", run_id: "run_background_demo", details: { reason: "The test command exited with code 0 and all 201 tests passed." } },
+      ];
+      const userTrace = {
+        run_id: "run_user_demo",
+        trace_type: "event_user",
+        conversation_id: conversationId,
+        started_at: "2026-09-14T10:00:01-04:00",
+        ended_at: "2026-09-14T10:00:05-04:00",
+        user_input: "Run the test suite and verify that it passes.",
+        messages: [
+          { role: "user", content: "Run the test suite and verify that it passes.", created_at: "2026-09-14T14:00:01Z", estimated_tokens: 12 },
+          { role: "assistant", content: { content: "I’ll run the complete test suite and report concrete results.", tool_calls: [{ id: "call_demo", type: "function", function: { name: "bash", arguments: '{"command":"python3 -m pytest -q","run_in_background":true}' } }] }, created_at: "2026-09-14T14:00:03Z", estimated_tokens: 42 },
+          { role: "tool", content: { content: "Started background task bg_0001" }, metadata: { tool_call_id: "call_demo" }, created_at: "2026-09-14T14:00:04Z", estimated_tokens: 8 },
+        ],
+        nested_llm_calls: [],
+      };
+      const backgroundTrace = {
+        run_id: "run_background_demo",
+        trace_type: "event_background_task",
+        conversation_id: conversationId,
+        started_at: "2026-09-14T10:00:08-04:00",
+        ended_at: "2026-09-14T10:00:12-04:00",
+        user_input: "Background task bg_0001 completed: 201 tests passed.",
+        messages: [
+          { role: "user", content: "Background task bg_0001 completed with exit code 0: 201 tests passed.", created_at: "2026-09-14T14:00:08Z", estimated_tokens: 17 },
+          { role: "assistant", content: { content: "All 201 tests passed. The goal is satisfied.", tool_calls: null }, created_at: "2026-09-14T14:00:10Z", estimated_tokens: 14 },
+        ],
+        nested_llm_calls: [],
+      };
+
+      loadedEntries = [
+        { fileName: "goals/goal_demo.jsonl", data: { trace_type: "jsonl", events: goalEvents } },
+        { fileName: "event_user_demo.json", data: userTrace },
+        { fileName: "event_background_demo.json", data: backgroundTrace },
+      ];
+      populateGoalPicker(getGoalEntries(loadedEntries));
+      renderSelectedGoal();
+      setLoadStatus("Demo loaded: 3 correlated trace files.");
+    }
+
+    async function loadSelectedFiles(event) {
+      const files = Array.from(event.target.files || []).filter((file) =>
+        /\.(?:json|jsonl)$/i.test(file.name)
+      );
+      if (!files.length) return;
+
+      const results = await Promise.all(files.map(async (file) => {
+        const fileName = file.webkitRelativePath || file.name;
+        try {
+          return {
+            data: parseTraceText(await file.text(), fileName),
+            fileName,
+          };
+        } catch (error) {
+          return { error, fileName };
+        }
+      }));
+
+      loadedEntries = results.filter((result) => !result.error);
+      const failures = results.filter((result) => result.error);
+
+      if (!loadedEntries.length) {
+        goalPickerEl.hidden = true;
+        summaryEl.innerHTML = "";
+        messagesEl.innerHTML = `<div class="placeholder error">Could not load traces: ${escapeHtml(failures[0].error.message)}</div>`;
+        nestedLlmCallsEl.innerHTML = "";
+        setLoadStatus(`${failures.length} file(s) could not be parsed.`, true);
+        return;
+      }
+
+      const goalEntries = getGoalEntries(loadedEntries);
+      populateGoalPicker(goalEntries);
+      if (goalEntries.length) {
+        renderSelectedGoal();
+      } else {
+        const entry = loadedEntries[0];
+        renderTrace(entry.data, entry.fileName);
+      }
+
+      const status = `${loadedEntries.length} trace file(s) loaded` + (
+        failures.length ? `; ${failures.length} skipped because they were invalid.` : "."
+      );
+      setLoadStatus(status, failures.length > 0);
+    }
+
+    function setLoadStatus(message, isError = false) {
+      loadStatusEl.textContent = message;
+      loadStatusEl.classList.toggle("error", isError);
+    }
+
+    function getGoalEntries(entries) {
+      return entries.filter((entry) =>
+        entry.data && Array.isArray(entry.data.events) && entry.data.events.some(
+          (event) => event && event.goal_id
+        )
+      );
+    }
+
+    function populateGoalPicker(goalEntries) {
+      goalSelectEl.innerHTML = "";
+      goalPickerEl.hidden = goalEntries.length === 0;
+      const sorted = [...goalEntries].sort((left, right) =>
+        timestampValue(right.data.events[0] && right.data.events[0].timestamp)
+        - timestampValue(left.data.events[0] && left.data.events[0].timestamp)
+      );
+      for (const entry of sorted) {
+        const first = entry.data.events[0] || {};
+        const goalSet = entry.data.events.find((event) => event.stage === "goal_set");
+        const condition = goalSet && goalSet.details && goalSet.details.condition;
+        const option = document.createElement("option");
+        option.value = first.goal_id || entry.fileName;
+        option.textContent = condition
+          ? `${condition} (${option.value})`
+          : option.value;
+        option.dataset.fileName = entry.fileName;
+        goalSelectEl.appendChild(option);
+      }
+    }
+
+    function renderSelectedGoal() {
+      const goalEntry = getGoalEntries(loadedEntries).find((entry) => {
+        const first = entry.data.events[0] || {};
+        return (first.goal_id || entry.fileName) === goalSelectEl.value;
+      });
+      if (goalEntry) renderUnifiedGoal(goalEntry, loadedEntries);
+    }
+
+    function parseTraceText(text, fileName = "") {
+      const withoutBom = text.replace(/^\uFEFF/, "");
+      const trimmed = withoutBom.trim();
+      if (!trimmed) throw new Error("The selected file is empty.");
 
       try {
-        const trace = JSON.parse(await file.text());
-        renderTrace(trace, file.name);
-      } catch (error) {
-        summaryEl.innerHTML = "";
-        messagesEl.innerHTML = `<div class="placeholder error">Could not load JSON: ${escapeHtml(error.message)}</div>`;
-        nestedLlmCallsEl.innerHTML = "";
+        return JSON.parse(trimmed);
+      } catch (jsonError) {
+        const events = [];
+        const invalidLines = [];
+
+        withoutBom.split(/\r?\n/).forEach((line, index) => {
+          if (!line.trim()) return;
+          try {
+            events.push(JSON.parse(line));
+          } catch (error) {
+            invalidLines.push(`${index + 1} (${error.message})`);
+          }
+        });
+
+        if (invalidLines.length) {
+          throw new Error(`Invalid JSONL at line ${invalidLines.join(", line ")}`);
+        }
+        if (!events.length) throw jsonError;
+        return { trace_type: "jsonl", events, source_file: fileName };
       }
-    });
+    }
+
+    function buildUnifiedGoalTimeline(goalEntry, entries) {
+      const events = goalEntry.data.events;
+      const first = events[0] || {};
+      const goalId = first.goal_id;
+      const conversationId = first.conversation_id;
+      const referencedRunIds = new Set(
+        events.map((event) => event && event.run_id).filter(Boolean)
+      );
+      const traces = entries.filter((entry) => {
+        const trace = entry.data;
+        return trace
+          && !Array.isArray(trace.events)
+          && Array.isArray(trace.messages)
+          && referencedRunIds.has(trace.run_id)
+          && (!conversationId || trace.conversation_id === conversationId);
+      });
+      const matchedRunIds = new Set(traces.map((entry) => entry.data.run_id));
+      const items = [];
+
+      events.forEach((event, sourceIndex) => items.push({
+        data: event,
+        kind: "goal",
+        sourceIndex,
+        timestamp: event && event.timestamp,
+      }));
+
+      traces.forEach((entry) => {
+        const trace = entry.data;
+        items.push({
+          data: trace,
+          fileName: entry.fileName,
+          kind: "run_start",
+          timestamp: trace.started_at,
+        });
+        trace.messages.forEach((message, sourceIndex) => items.push({
+          data: message,
+          fileName: entry.fileName,
+          kind: "message",
+          runId: trace.run_id,
+          sourceIndex,
+          timestamp: message && message.created_at || trace.started_at,
+          traceType: trace.trace_type,
+        }));
+        (trace.nested_llm_calls || []).forEach((call, sourceIndex) => items.push({
+          data: call,
+          fileName: entry.fileName,
+          kind: "nested_llm",
+          runId: trace.run_id,
+          sourceIndex,
+          timestamp: call && call.started_at || trace.started_at,
+          traceType: trace.trace_type,
+        }));
+        items.push({
+          data: trace,
+          fileName: entry.fileName,
+          kind: "run_end",
+          timestamp: trace.ended_at,
+        });
+      });
+
+      const kindOrder = {
+        goal: 0,
+        run_start: 1,
+        message: 2,
+        nested_llm: 3,
+        run_end: 4,
+      };
+      items.sort((left, right) => {
+        const difference = timestampValue(left.timestamp) - timestampValue(right.timestamp);
+        return difference || kindOrder[left.kind] - kindOrder[right.kind];
+      });
+
+      return {
+        conversationId,
+        events,
+        goalId,
+        goalFileName: goalEntry.fileName,
+        items,
+        matchedRunIds,
+        referencedRunIds,
+        traces,
+      };
+    }
+
+    function timestampValue(value) {
+      const parsed = Date.parse(value || "");
+      return Number.isFinite(parsed) ? parsed : Number.MAX_SAFE_INTEGER;
+    }
+
+    function goalOutcome(events) {
+      const terminalStages = new Set([
+        "goal_completed",
+        "goal_impossible",
+        "goal_paused",
+        "goal_cleared",
+      ]);
+      const terminal = [...events].reverse().find((event) =>
+        terminalStages.has(event && event.stage)
+      );
+      if (terminal) {
+        return {
+          label: terminal.stage.replace(/^goal_/, "").replaceAll("_", " "),
+          reason: terminal.details && terminal.details.reason || "",
+          stage: terminal.stage,
+        };
+      }
+      const evaluation = [...events].reverse().find((event) =>
+        event && event.stage === "evaluation_completed"
+      );
+      if (evaluation && evaluation.details && evaluation.details.action === "error") {
+        return {
+          label: "evaluation error",
+          reason: evaluation.details.reason || "",
+          stage: "evaluation_error",
+        };
+      }
+      return {
+        label: "active",
+        reason: evaluation && evaluation.details && evaluation.details.reason || "",
+        stage: "active",
+      };
+    }
+
+    function renderUnifiedGoal(goalEntry, entries) {
+      const timeline = buildUnifiedGoalTimeline(goalEntry, entries);
+      const events = timeline.events;
+      const first = events[0] || {};
+      const last = events[events.length - 1] || {};
+      const goalSet = events.find((event) => event && event.stage === "goal_set");
+      const condition = goalSet && goalSet.details && goalSet.details.condition || "unknown";
+      const outcome = goalOutcome(events);
+      const messages = timeline.traces.flatMap((entry) => entry.data.messages || []);
+      const toolCalls = messages.reduce(
+        (total, message) => total + getToolCalls(message).length,
+        0,
+      );
+      const missingRuns = [...timeline.referencedRunIds].filter(
+        (runId) => !timeline.matchedRunIds.has(runId)
+      );
+
+      primaryTitleEl.textContent = "Unified Goal Timeline";
+      nestedTitleEl.hidden = true;
+      nestedLlmCallsEl.hidden = true;
+      messagesEl.className = "timeline";
+      messagesEl.innerHTML = "";
+
+      const stats = [
+        ["Goal", timeline.goalId || "unknown"],
+        ["Condition", condition],
+        ["Outcome", outcome.label],
+        ["Result", outcome.reason || "No final reason recorded"],
+        ["Started", first.timestamp || "unknown"],
+        ["Ended", last.timestamp || "unknown"],
+        ["Runs Loaded", `${timeline.matchedRunIds.size} / ${timeline.referencedRunIds.size}`],
+        ["Messages", String(messages.length)],
+        ["Tool Calls", String(toolCalls)],
+        ["Goal Events", String(events.length)],
+      ];
+      summaryEl.innerHTML = stats.map(([label, value]) => `
+        <div class="stat">
+          <div class="label">${escapeHtml(label)}</div>
+          <div class="value">${escapeHtml(value)}</div>
+        </div>
+      `).join("");
+
+      const outcomeEl = document.createElement("article");
+      const errorOutcome = /error|impossible|paused/.test(outcome.stage);
+      outcomeEl.className = `message outcome ${errorOutcome ? "error-outcome" : ""}`;
+      outcomeEl.innerHTML = `
+        <div class="message-header">
+          <div class="message-title">
+            <span class="role role-${errorOutcome ? "unknown" : "assistant"}">${escapeHtml(outcome.label)}</span>
+            <strong>Goal result</strong>
+          </div>
+        </div>
+        <div class="content">${escapeHtml(outcome.reason || "The goal has no terminal result yet.")}</div>
+      `;
+      messagesEl.appendChild(outcomeEl);
+
+      if (missingRuns.length) {
+        const warning = document.createElement("div");
+        warning.className = "message error-outcome";
+        warning.innerHTML = `
+          <div class="content error">Missing ${missingRuns.length} referenced run trace(s). Select the entire traces folder for the complete timeline.</div>
+          <details><summary>Missing run IDs</summary><pre>${escapeHtml(missingRuns.join("\n"))}</pre></details>
+        `;
+        messagesEl.appendChild(warning);
+      }
+
+      timeline.items.forEach((item, index) => {
+        let element;
+        if (item.kind === "goal") {
+          element = renderEvent(item.data, index);
+          element.classList.add("timeline-goal");
+        } else if (item.kind === "message") {
+          const context = `${item.traceType || "run"}  run: ${item.runId}  file: ${item.fileName}`;
+          element = renderMessage(item.data, index, context);
+          element.classList.add("timeline-message");
+        } else if (item.kind === "nested_llm") {
+          const context = `run: ${item.runId}  file: ${item.fileName}`;
+          element = renderNestedLlmCall(item.data, index, context);
+          element.classList.add("timeline-message");
+        } else {
+          element = renderRunBoundary(item, index);
+        }
+        messagesEl.appendChild(element);
+      });
+    }
+
+    function renderRunBoundary(item, index) {
+      const trace = item.data;
+      const isStart = item.kind === "run_start";
+      const article = document.createElement("article");
+      article.className = "message timeline-run";
+      article.innerHTML = `
+        <div class="message-header">
+          <div class="message-title">
+            <span class="index">#${index}</span>
+            <span class="role role-assistant">${isStart ? "run started" : "run ended"}</span>
+            <span class="meta">${escapeHtml(item.timestamp || "unknown time")}</span>
+          </div>
+        </div>
+        <div class="content">
+          <strong>${escapeHtml(trace.trace_type || "agent")}</strong> · ${escapeHtml(trace.run_id || "unknown run")}
+          ${isStart && trace.user_input ? `<br>${escapeHtml(trace.user_input)}` : ""}
+          <div class="meta">${escapeHtml(item.fileName)}</div>
+        </div>
+      `;
+      return article;
+    }
 
     function renderTrace(trace, fileName) {
+      if (trace && Array.isArray(trace.events)) {
+        renderEventTrace(trace.events, fileName);
+        return;
+      }
+
+      primaryTitleEl.textContent = "Messages";
+      messagesEl.className = "";
+      nestedTitleEl.hidden = false;
+      nestedLlmCallsEl.hidden = false;
       const messages = Array.isArray(trace.messages)
         ? trace.messages
         : Array.isArray(trace)
@@ -268,6 +770,86 @@
           nestedLlmCallsEl.appendChild(renderNestedLlmCall(call, index));
         });
       }
+    }
+
+    function renderEventTrace(events, fileName) {
+      primaryTitleEl.textContent = "Goal Events";
+      nestedTitleEl.hidden = true;
+      nestedLlmCallsEl.hidden = true;
+      messagesEl.innerHTML = "";
+      messagesEl.className = "";
+
+      const first = events[0] || {};
+      const last = events[events.length - 1] || {};
+      const stages = {};
+      let errors = 0;
+      for (const event of events) {
+        const stage = String(event && event.stage || "unknown");
+        stages[stage] = (stages[stage] || 0) + 1;
+        if (/error|fail/i.test(stage) || event && event.error || containsError(compactJson(event && event.details))) {
+          errors += 1;
+        }
+      }
+
+      const stageText = Object.entries(stages)
+        .map(([stage, count]) => `${stage}: ${count}`)
+        .join(" | ") || "none";
+      const stats = [
+        ["File", fileName],
+        ["Goal", first.goal_id || "unknown"],
+        ["Conversation", first.conversation_id || "unknown"],
+        ["Started", first.timestamp || "unknown"],
+        ["Ended", last.timestamp || "unknown"],
+        ["Events", String(events.length)],
+        ["Stages", stageText],
+        ["Errors", String(errors)],
+      ];
+      summaryEl.innerHTML = stats.map(([label, value]) => `
+        <div class="stat">
+          <div class="label">${escapeHtml(label)}</div>
+          <div class="value">${escapeHtml(value)}</div>
+        </div>
+      `).join("");
+
+      if (!events.length) {
+        messagesEl.innerHTML = '<div class="placeholder">No events found in this trace.</div>';
+        return;
+      }
+      events.forEach((event, index) => messagesEl.appendChild(renderEvent(event, index)));
+    }
+
+    function renderEvent(event, index) {
+      const article = document.createElement("article");
+      article.className = "message";
+      const stage = String(event && event.stage || "unknown");
+      const details = event && event.details;
+      const metadata = [
+        event && event.timestamp,
+        event && event.run_id ? `run: ${event.run_id}` : "",
+        event && event.event_id ? `event: ${event.event_id}` : "",
+        event && event.background_task_id ? `task: ${event.background_task_id}` : "",
+      ].filter(Boolean).join("  ");
+      const errorLike = /error|fail/i.test(stage) || containsError(compactJson(details));
+
+      article.innerHTML = `
+        <div class="message-header">
+          <div class="message-title">
+            <span class="index">#${index}</span>
+            <span class="role role-${errorLike ? "unknown" : "assistant"}">${escapeHtml(stage)}</span>
+            ${metadata ? `<span class="meta">${escapeHtml(metadata)}</span>` : ""}
+          </div>
+          ${errorLike ? '<span class="error">error-like event</span>' : ""}
+        </div>
+        <div class="content"><pre>${escapeHtml(formatJson(details === undefined ? {} : details))}</pre></div>
+      `;
+
+      const rawDetails = document.createElement("details");
+      rawDetails.innerHTML = `
+        <summary>Raw event JSON</summary>
+        <pre>${escapeHtml(formatJson(event))}</pre>
+      `;
+      article.appendChild(rawDetails);
+      return article;
     }
 
     function renderSummary(trace, messages, nestedLlmCalls, fileName) {
@@ -319,7 +901,7 @@
       `).join("");
     }
 
-    function renderMessage(message, index) {
+    function renderMessage(message, index, context = "") {
       const role = String(message && message.role || "unknown");
       const safeRole = ["system", "user", "assistant", "tool"].includes(role) ? role : "unknown";
       const article = document.createElement("article");
@@ -328,7 +910,7 @@
       const toolCallIdValue = getToolCallId(message);
       const toolCallId = toolCallIdValue ? `tool_call_id: ${toolCallIdValue}` : "";
       const name = message && message.name ? `name: ${message.name}` : "";
-      const meta = [toolCallId, name].filter(Boolean).join("  ");
+      const meta = [toolCallId, name, context].filter(Boolean).join("  ");
       const content = getDisplayContent(message);
       const toolCalls = getToolCalls(message);
       const tokenCount = getMessageTokenCount(message);
@@ -374,7 +956,7 @@
       return article;
     }
 
-    function renderNestedLlmCall(call, index) {
+    function renderNestedLlmCall(call, index, context = "") {
       const article = document.createElement("article");
       article.className = "message";
       const status = String(call && call.status || "unknown");
@@ -383,7 +965,7 @@
       const model = call && call.model ? `model: ${call.model}` : "";
       const started = call && call.started_at ? `started: ${call.started_at}` : "";
       const ended = call && call.ended_at ? `ended: ${call.ended_at}` : "";
-      const meta = [filePath, model, started, ended].filter(Boolean).join("  ");
+      const meta = [filePath, model, started, ended, context].filter(Boolean).join("  ");
       const response = call && call.response_content ? call.response_content : "";
       const error = call && call.error ? call.error : "";
       const tokenCount = getNestedLlmCallTokenCount(call);

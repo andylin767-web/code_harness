@@ -1,8 +1,9 @@
 import asyncio
+import threading
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-import threading
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from code_harness.core.permissions import PROJECT_ROOT
@@ -22,9 +23,7 @@ def handle_inbox_messages(
 ) -> bool:
     """Dispatch inbox messages, always handling shutdown first."""
     shutdown_messages = [
-        message
-        for message in inbox
-        if message.get("type") == "shutdown_request"
+        message for message in inbox if message.get("type") == "shutdown_request"
     ]
     for message in shutdown_messages:
         if teammate_dispatcher.dispatch(name, message, messages):
@@ -249,10 +248,7 @@ class LeadAgent(Agent):
         conversation_id = f"conv_{uuid4().hex}"
         conversation_store = ConversationStore()
         started_at = utc_now_iso()
-        run_id = (
-            f"{started_at.replace(':', '-').replace('+', 'Z')}_"
-            f"{uuid4().hex[:8]}"
-        )
+        run_id = f"{started_at.replace(':', '-').replace('+', 'Z')}_{uuid4().hex[:8]}"
 
         permission_engine = PermissionEngine(
             workspace_root=sub_agent.workspace_root,
@@ -386,21 +382,22 @@ class LeadAgent(Agent):
         parent_conversation_id: str,
     ) -> str:
         from code_harness.core.permissions import PROJECT_ROOT
-        from code_harness.models import XIAOMI_MIMO_V25_PRO
         from code_harness.team.message_bus import MessageBus
         from code_harness.tools.tools import get_tools
 
         tool_registry = get_tools("sub_agent")
-        system_prompt = (f"You are {name}, a {role}. Complete your assigned task using tools. "
-            "Send important updates and final results to the lead.")
-        
+        system_prompt = (
+            f"You are {name}, a {role}. Complete your assigned task using tools. "
+            "Send important updates and final results to the lead."
+        )
+
         sub_agent = Agent(
             name=name,
             role=role,
             assignment=assignment,
             toolset=tool_registry,
             system_prompt=system_prompt,
-            model=XIAOMI_MIMO_V25_PRO,
+            model=self.model,
         )
 
         mailbox_dir = PROJECT_ROOT / ".mailboxes"
@@ -436,7 +433,7 @@ class LeadAgent(Agent):
                             assignment="Handle the queued follow-up messages.",
                             toolset=tool_registry,
                             system_prompt=system_prompt,
-                            model=XIAOMI_MIMO_V25_PRO,
+                            model=current_agent.model,
                             workspace_root=current_agent.workspace_root,
                         )
             except Exception as exc:

@@ -5,10 +5,9 @@ from pydantic import BaseModel
 
 from code_harness.tools.tools import BaseTool
 
-
 DEFAULT_SKILL_DIRS = (
     Path(__file__).resolve().parents[1] / "skills",
-    #Path(__file__).resolve().parents[2] / "harness_engineer" / "skills",
+    # Path(__file__).resolve().parents[2] / "harness_engineer" / "skills",
 )
 
 
@@ -51,10 +50,7 @@ class SkillLoader:
         return name.strip().replace("_", "-")
 
     def list_skills_for_prompt(self) -> str:
-        return "\n".join(
-            f"- {s.name}: {s.description}"
-            for s in self.skills.values()
-        )
+        return "\n".join(f"- {s.name}: {s.description}" for s in self.skills.values())
 
     def get_skill(self, name: str) -> str:
         normalized_name = self._normalize_name(name)
@@ -62,7 +58,7 @@ class SkillLoader:
         if skill is None:
             return f"Skill not found: {name}"
         return skill.content
-    
+
     def _parse_frontmatter(self, content: str) -> dict:
         if not content.startswith("---"):
             return {}
@@ -79,9 +75,9 @@ class SkillLoader:
             metadata[key.strip()] = value.strip().strip("\"'")
         return metadata
 
+
 class LoadSkillInput(BaseModel):
     name: str
-   
 
 
 class LoadSkillTool(BaseTool):

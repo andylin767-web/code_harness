@@ -69,9 +69,7 @@ def _normalize_mcp_result(result: Any) -> str:
         return normalized
 
     content = getattr(result, "content", result)
-    is_error = bool(
-        getattr(result, "isError", getattr(result, "is_error", False))
-    )
+    is_error = bool(getattr(result, "isError", getattr(result, "is_error", False)))
     normalized = _normalize_content(content)
     if is_error:
         raise MCPToolError(normalized or "MCP tool execution failed")
@@ -119,8 +117,7 @@ def _validate_json_schema(value: Any, schema: Any, path: str = "arguments") -> N
         raise ValueError(f"{path} does not match any allowed schema")
     if "oneOf" in schema:
         matches = sum(
-            _schema_matches(value, candidate, path)
-            for candidate in schema["oneOf"]
+            _schema_matches(value, candidate, path) for candidate in schema["oneOf"]
         )
         if matches != 1:
             raise ValueError(f"{path} must match exactly one allowed schema")

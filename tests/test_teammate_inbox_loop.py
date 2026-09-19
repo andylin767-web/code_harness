@@ -83,8 +83,7 @@ class TeammateInboxLoopTests(unittest.TestCase):
                     {"code_harness.core.loop": fake_loop_module},
                 ),
                 patch(
-                    "code_harness.core.permissions."
-                    "PermissionEngine.load_settings_json"
+                    "code_harness.core.permissions.PermissionEngine.load_settings_json"
                 ),
                 patch("code_harness.core.tracing.save_trace"),
             ):
@@ -140,9 +139,7 @@ class TeammateInboxLoopTests(unittest.TestCase):
                 {"request_id": "req_shutdown", "approve": True},
             )
             result_messages = [
-                message
-                for message in lead_messages
-                if message["type"] == "result"
+                message for message in lead_messages if message["type"] == "result"
             ]
             self.assertEqual(len(result_messages), 1)
             self.assertEqual(result_messages[0]["content"], "response 3")
@@ -213,8 +210,7 @@ class TeammateInboxLoopTests(unittest.TestCase):
                     {"code_harness.core.loop": fake_loop_module},
                 ),
                 patch(
-                    "code_harness.core.permissions."
-                    "PermissionEngine.load_settings_json"
+                    "code_harness.core.permissions.PermissionEngine.load_settings_json"
                 ),
                 patch("code_harness.core.tracing.save_trace"),
             ):

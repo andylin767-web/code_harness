@@ -3,12 +3,11 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import Mock, patch
 
-from pydantic import ValidationError
-
 from code_harness.team.protocol_manager import ProtocolManager
 from code_harness.team.protocol_state import ProtocolStatus, ProtocolType
 from code_harness.team.send import Sender
 from code_harness.tools.team import ReviewPlanInput, ReviewPlanTool
+from pydantic import ValidationError
 
 
 class ReviewPlanInputTests(unittest.TestCase):
@@ -28,12 +27,14 @@ class ReviewPlanInputTests(unittest.TestCase):
             ReviewPlanInput()
 
     def test_tool_creates_its_own_dependencies(self):
-        with TemporaryDirectory() as tmpdir:
-            with patch(
+        with (
+            TemporaryDirectory() as tmpdir,
+            patch(
                 "code_harness.tools.team.PROJECT_ROOT",
                 Path(tmpdir),
-            ):
-                tool = ReviewPlanTool()
+            ),
+        ):
+            tool = ReviewPlanTool()
 
         self.assertIsInstance(tool.sender, Sender)
         self.assertIsInstance(tool.protocol_manager, ProtocolManager)

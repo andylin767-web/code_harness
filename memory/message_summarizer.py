@@ -4,7 +4,6 @@ from code_harness.core.llm_client import LLMClient
 
 
 class MessageSummarizer:
-
     summary_prompt = """
             
         You are a Memory Compaction Agent.
@@ -77,40 +76,53 @@ Schema:
 
 
                 """
-        
 
     @classmethod
-    async def summarize_messages(cls, system_prompt, model, old_messages, existing_summary=None)->str:
+    async def summarize_messages(
+        cls, system_prompt, model, old_messages, existing_summary=None
+    ) -> str:
 
-        
         if existing_summary:
-            content= json.dumps({
+            content = json.dumps(
+                {
                     "existing_summary": existing_summary,
                     "new_messages_to_merge": old_messages,
-                }, indent=2)
-            
-        else:
-             content= json.dumps({
-                    "new_messages_to_merge": old_messages,
-                }, indent=2)
+                },
+                indent=2,
+            )
 
-        llm_client=LLMClient()
+        else:
+            content = json.dumps(
+                {
+                    "new_messages_to_merge": old_messages,
+                },
+                indent=2,
+            )
+
+        llm_client = LLMClient()
         summarizer_messages = [
             {"role": "system", "content": system_prompt},
             {
                 "role": "user",
                 "content": content,
-            }
+            },
         ]
 
         response = await llm_client.send(model, summarizer_messages)
 
         return response.choices[0].message.content
-    
-    @classmethod
-    async def summarize_conversation_summary(cls, model, current_conversation_summary=None, user_summary=None, assistant_summary=None, tool_summary=None):
 
-        content=f"""
+    @classmethod
+    async def summarize_conversation_summary(
+        cls,
+        model,
+        current_conversation_summary=None,
+        user_summary=None,
+        assistant_summary=None,
+        tool_summary=None,
+    ):
+
+        content = f"""
                 Summaries to merge:
 
                 <current_conversation_summary>
@@ -130,20 +142,18 @@ Schema:
                 </new_tool_interactions_summary>
                 """
 
-        llm_client=LLMClient()
+        llm_client = LLMClient()
         summarizer_messages = [
-            {"role": "system", "content": MessageSummarizer.conversation_summary_prompt},
+            {
+                "role": "system",
+                "content": MessageSummarizer.conversation_summary_prompt,
+            },
             {
                 "role": "user",
                 "content": content,
-            }
+            },
         ]
 
         response = await llm_client.send(model, summarizer_messages)
 
         return response.choices[0].message.content
-    
-
-
-
-

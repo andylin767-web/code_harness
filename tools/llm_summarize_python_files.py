@@ -7,13 +7,12 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from code_harness.models import ROUTER_MODEL
+from code_harness.core.config import get_model_id
 from code_harness.tools.summarize_python_files import (
     _python_files,
     _summarize_file,
 )
 from code_harness.tools.tools import BaseTool
-
 
 PROMPT_VERSION = "python-file-summary-v2"
 
@@ -22,7 +21,7 @@ class LLMSummarizePythonFilesInput(BaseModel):
     root_path: str = "."
     output_path: str | None = None
     cache_path: str | None = None
-    model: str = ROUTER_MODEL
+    model: str = Field(default_factory=get_model_id)
     format: Literal["markdown", "json"] = "markdown"
     include_tests: bool = False
     max_chars_per_file: int = 20000
@@ -51,7 +50,11 @@ class LLMSummarizePythonFiles(BaseTool):
         summaries = await _summarize_files(client, arguments)
 
         root = Path(arguments.root_path)
-        rendered = _render_json(summaries) if arguments.format == "json" else _render_markdown(summaries, root)
+        rendered = (
+            _render_json(summaries)
+            if arguments.format == "json"
+            else _render_markdown(summaries, root)
+        )
 
         if arguments.output_path:
             output_path = Path(arguments.output_path)
@@ -60,17 +63,23 @@ class LLMSummarizePythonFiles(BaseTool):
             completed = sum(1 for item in summaries if item.get("status") == "ok")
             failed = sum(1 for item in summaries if item.get("status") == "error")
             if arguments.print_progress:
-                print(f"summary complete: {len(summaries)} files ({completed} ok, {failed} error)")
+                print(
+                    f"summary complete: {len(summaries)} files ({completed} ok, {failed} error)"
+                )
             return _render_completion_message(summaries, output_path)
 
         if arguments.print_progress:
             completed = sum(1 for item in summaries if item.get("status") == "ok")
             failed = sum(1 for item in summaries if item.get("status") == "error")
-            print(f"summary complete: {len(summaries)} files ({completed} ok, {failed} error)")
+            print(
+                f"summary complete: {len(summaries)} files ({completed} ok, {failed} error)"
+            )
         return rendered
 
 
-def _render_completion_message(summaries: list[dict[str, object]], output_path: Path) -> str:
+def _render_completion_message(
+    summaries: list[dict[str, object]], output_path: Path
+) -> str:
     completed = sum(1 for item in summaries if item.get("status") == "ok")
     failed = sum(1 for item in summaries if item.get("status") == "error")
     return (
@@ -116,7 +125,10 @@ async def _summarize_files(
         try:
             async with semaphore:
                 if arguments.print_progress:
-                    print(f"[{index}/{file_count}] summarizing {relative_path}", flush=True)
+                    print(
+                        f"[{index}/{file_count}] summarizing {relative_path}",
+                        flush=True,
+                    )
                 summary = await _summarize_one_file(
                     client=client,
                     model=arguments.model,
@@ -130,8 +142,12 @@ async def _summarize_files(
             if arguments.fail_fast:
                 raise
             if arguments.print_progress:
-                print(f"[{index}/{file_count}] error {relative_path}: {exc}", flush=True)
-            return _error_summary(relative_path, ast_summary, arguments.model, index, file_count, exc)
+                print(
+                    f"[{index}/{file_count}] error {relative_path}: {exc}", flush=True
+                )
+            return _error_summary(
+                relative_path, ast_summary, arguments.model, index, file_count, exc
+            )
 
         async with cache_lock:
             cache[cache_key] = summary
@@ -163,9 +179,13 @@ def _filter_files(
     selected = []
     for path in files:
         relative_path = path.relative_to(root).as_posix() if path != root else path.name
-        if include_globs and not any(fnmatch.fnmatch(relative_path, pattern) for pattern in include_globs):
+        if include_globs and not any(
+            fnmatch.fnmatch(relative_path, pattern) for pattern in include_globs
+        ):
             continue
-        if exclude_globs and any(fnmatch.fnmatch(relative_path, pattern) for pattern in exclude_globs):
+        if exclude_globs and any(
+            fnmatch.fnmatch(relative_path, pattern) for pattern in exclude_globs
+        ):
             continue
         selected.append(path)
     return selected
@@ -257,7 +277,9 @@ async def _summarize_one_file(
 
     ended_at = utc_now_iso()
     message = response.choices[0].message
-    response_message = message.model_dump() if hasattr(message, "model_dump") else vars(message)
+    response_message = (
+        message.model_dump() if hasattr(message, "model_dump") else vars(message)
+    )
     content = message.content or "{}"
     record_nested_llm_call(
         {
@@ -300,7 +322,9 @@ def _messages(
     clipped_source = source[:max_chars]
     truncation_note = ""
     if len(source) > max_chars:
-        truncation_note = f"\n\n[Source clipped from {len(source)} to {max_chars} characters.]"
+        truncation_note = (
+            f"\n\n[Source clipped from {len(source)} to {max_chars} characters.]"
+        )
 
     return [
         {
@@ -362,7 +386,9 @@ def _write_cache(cache_path: str | None, cache: dict[str, dict[str, object]]) ->
         return
     path = Path(cache_path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(cache, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    path.write_text(
+        json.dumps(cache, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
 
 
 def _parse_json_object(content: str) -> dict[str, object]:
@@ -395,7 +421,11 @@ def _safe_summary(value: object, ast_summary: dict[str, object]) -> str:
 
 
 def _safe_string_list(value: object) -> list[str]:
-    return [item for item in (_clean_text(text) for text in _string_list(value)) if item and not _looks_like_code(item)]
+    return [
+        item
+        for item in (_clean_text(text) for text in _string_list(value))
+        if item and not _looks_like_code(item)
+    ]
 
 
 def _clean_text(text: str) -> str:
@@ -423,9 +453,7 @@ def _looks_like_code(text: str) -> bool:
         return True
     if "\\n" in stripped and any(marker in stripped for marker in code_markers):
         return True
-    if stripped.count(";") >= 2 or stripped.count("{") >= 2:
-        return True
-    return False
+    return stripped.count(";") >= 2 or stripped.count("{") >= 2
 
 
 def _render_json(summaries: list[dict[str, object]]) -> str:
@@ -465,7 +493,9 @@ def _render_markdown(summaries: list[dict[str, object]], root: Path) -> str:
         lines.append(f"### `{item['path']}`")
         lines.append(f"- Kind: `{item['kind']}`")
         lines.append(f"- Status: `{item.get('status', 'ok')}`")
-        lines.append(f"- File index: {item.get('file_index', '?')} of {item.get('file_count', '?')}")
+        lines.append(
+            f"- File index: {item.get('file_index', '?')} of {item.get('file_count', '?')}"
+        )
         lines.append(f"- Cache hit: {item.get('cache_hit', False)}")
         lines.append(f"- Lines: {item['line_count']}")
         lines.append(f"- Summary: {item['summary']}")

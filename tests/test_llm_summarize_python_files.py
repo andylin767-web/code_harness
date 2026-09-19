@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
+from code_harness.core.tracing import pop_nested_llm_calls
 from code_harness.tools.llm_summarize_python_files import (
     LLMSummarizePythonFiles,
     LLMSummarizePythonFilesInput,
@@ -17,7 +18,6 @@ from code_harness.tools.llm_summarize_python_files import (
     _write_cache,
 )
 from code_harness.tools.summarize_python_files import _summarize_file
-from code_harness.core.tracing import pop_nested_llm_calls
 
 
 class FakeLLMClient:
@@ -133,7 +133,9 @@ class LLMSummarizePythonFilesTests(unittest.IsolatedAsyncioTestCase):
 
             self.assertEqual(summary["path"], "app.py")
             self.assertEqual(summary["summary"], "Defines a reusable run function.")
-            self.assertEqual(client.calls[0]["response_format"], {"type": "json_object"})
+            self.assertEqual(
+                client.calls[0]["response_format"], {"type": "json_object"}
+            )
             events = pop_nested_llm_calls()
             self.assertEqual(events[-1]["file_path"], "app.py")
             self.assertEqual(events[-1]["status"], "ok")
@@ -180,13 +182,19 @@ class LLMSummarizePythonFilesTests(unittest.IsolatedAsyncioTestCase):
 
             self.assertEqual(first_key, second_key)
             self.assertEqual(_load_cache(str(cache_path)), {first_key: cached_summary})
-            self.assertEqual(LLMSummarizePythonFiles.input_model, LLMSummarizePythonFilesInput)
+            self.assertEqual(
+                LLMSummarizePythonFiles.input_model, LLMSummarizePythonFilesInput
+            )
 
     async def test_summarize_files_continues_after_file_error(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            (root / "a.py").write_text("def first():\n    return True\n", encoding="utf-8")
-            (root / "b.py").write_text("def second():\n    return True\n", encoding="utf-8")
+            (root / "a.py").write_text(
+                "def first():\n    return True\n", encoding="utf-8"
+            )
+            (root / "b.py").write_text(
+                "def second():\n    return True\n", encoding="utf-8"
+            )
             arguments = LLMSummarizePythonFilesInput(
                 root_path=str(root),
                 model="test-model",
@@ -206,7 +214,9 @@ class LLMSummarizePythonFilesTests(unittest.IsolatedAsyncioTestCase):
             pop_nested_llm_calls()
             root = Path(tmpdir)
             for name in ["e.py", "d.py", "c.py", "b.py", "a.py"]:
-                (root / name).write_text(f"def {name[0]}():\n    return True\n", encoding="utf-8")
+                (root / name).write_text(
+                    f"def {name[0]}():\n    return True\n", encoding="utf-8"
+                )
             client = SlowLLMClient()
             arguments = LLMSummarizePythonFilesInput(
                 root_path=str(root),
@@ -219,8 +229,13 @@ class LLMSummarizePythonFilesTests(unittest.IsolatedAsyncioTestCase):
 
             self.assertLessEqual(client.max_active, 2)
             self.assertEqual(len(client.calls), 5)
-            self.assertEqual([item["path"] for item in summaries], ["a.py", "b.py", "c.py", "d.py", "e.py"])
-            self.assertEqual([item["file_index"] for item in summaries], [1, 2, 3, 4, 5])
+            self.assertEqual(
+                [item["path"] for item in summaries],
+                ["a.py", "b.py", "c.py", "d.py", "e.py"],
+            )
+            self.assertEqual(
+                [item["file_index"] for item in summaries], [1, 2, 3, 4, 5]
+            )
             self.assertEqual(
                 sorted(event["file_path"] for event in pop_nested_llm_calls()),
                 ["a.py", "b.py", "c.py", "d.py", "e.py"],
@@ -229,10 +244,14 @@ class LLMSummarizePythonFilesTests(unittest.IsolatedAsyncioTestCase):
     async def test_summarize_files_skips_tests_by_default(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            (root / "app.py").write_text("def run():\n    return True\n", encoding="utf-8")
+            (root / "app.py").write_text(
+                "def run():\n    return True\n", encoding="utf-8"
+            )
             tests_dir = root / "tests"
             tests_dir.mkdir()
-            (tests_dir / "test_app.py").write_text("def test_run():\n    assert True\n", encoding="utf-8")
+            (tests_dir / "test_app.py").write_text(
+                "def test_run():\n    assert True\n", encoding="utf-8"
+            )
             arguments = LLMSummarizePythonFilesInput(
                 root_path=str(root),
                 model="test-model",
@@ -247,7 +266,12 @@ class LLMSummarizePythonFilesTests(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             paths = []
-            for relative_path in ["core/app.py", "core/test_app.py", "tools/bash.py", "main.py"]:
+            for relative_path in [
+                "core/app.py",
+                "core/test_app.py",
+                "tools/bash.py",
+                "main.py",
+            ]:
                 path = root / relative_path
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text("VALUE = 1\n", encoding="utf-8")

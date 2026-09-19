@@ -1,0 +1,37 @@
+# Secrets and local environment overrides
+.env
+.env.*
+!.env.example
+
+# Python caches and tooling
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments and editors
+.venv/
+venv/
+.vscode/
+.idea/
+.DS_Store
+
+# Harness runtime state
+.cron_events.json
+.goals/
+.mailboxes/
+.scheduled_tasks.json
+.tasks/
+.worktrees/
+traces/
+
+# Keep repository quality configuration publishable even when a developer has
+# a broad dotfile rule in their global or local Git excludes.
+!/.editorconfig
+!/.github/
+!/.github/workflows/
+!/.github/workflows/*.yml
+!/.gitignore
+!/.pre-commit-config.yaml

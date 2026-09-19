@@ -1,7 +1,6 @@
 import ast
 from pathlib import Path
 
-
 EXCLUDED_DIRS = {
     ".git",
     ".mypy_cache",
@@ -16,12 +15,14 @@ EXCLUDED_DIRS = {
 
 def _python_files(root: Path, include_tests: bool) -> list[Path]:
     if root.is_file():
-        return [root] if root.suffix == ".py" and _include_path(root, include_tests) else []
+        return (
+            [root]
+            if root.suffix == ".py" and _include_path(root, include_tests)
+            else []
+        )
 
     return sorted(
-        path
-        for path in root.rglob("*.py")
-        if _include_path(path, include_tests)
+        path for path in root.rglob("*.py") if _include_path(path, include_tests)
     )
 
 
@@ -55,7 +56,9 @@ def _summarize_file(path: Path, root: Path) -> dict[str, object]:
 
     docstring = ast.get_docstring(tree)
     imports = _imports(tree)
-    classes = [_class_summary(node) for node in tree.body if isinstance(node, ast.ClassDef)]
+    classes = [
+        _class_summary(node) for node in tree.body if isinstance(node, ast.ClassDef)
+    ]
     functions = [
         _function_name(node)
         for node in tree.body
@@ -68,7 +71,9 @@ def _summarize_file(path: Path, root: Path) -> dict[str, object]:
         "path": relative_path,
         "line_count": line_count,
         "kind": _file_kind(relative_path, classes, functions, entrypoint),
-        "summary": _summary_sentence(docstring, imports, classes, functions, assignments, entrypoint),
+        "summary": _summary_sentence(
+            docstring, imports, classes, functions, assignments, entrypoint
+        ),
         "imports": imports,
         "classes": classes,
         "functions": functions,
@@ -155,7 +160,12 @@ def _has_main_guard(tree: ast.Module) -> bool:
     return False
 
 
-def _file_kind(relative_path: str, classes: list[dict[str, object]], functions: list[str], entrypoint: bool) -> str:
+def _file_kind(
+    relative_path: str,
+    classes: list[dict[str, object]],
+    functions: list[str],
+    entrypoint: bool,
+) -> str:
     path = Path(relative_path)
     if path.name.startswith("test_") or "tests" in path.parts:
         return "test"
@@ -192,7 +202,11 @@ def _summary_sentence(
         pieces.append("uses " + ", ".join(imports[:6]))
     if entrypoint:
         pieces.append("has a __main__ entrypoint")
-    return "Defines " + "; ".join(pieces) + "." if pieces else "Empty or metadata-only Python module."
+    return (
+        "Defines " + "; ".join(pieces) + "."
+        if pieces
+        else "Empty or metadata-only Python module."
+    )
 
 
 def _first_sentence(text: str | None) -> str:

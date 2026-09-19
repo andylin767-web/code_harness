@@ -5,31 +5,31 @@ from pydantic import BaseModel
 
 from code_harness.tools.tools import BaseTool, get_tools
 
+
 class TaskInput(BaseModel):
     prompt: str
-    parent_conversation_id:str
-    max_runs:int
-    max_tool_calls:int
+    parent_conversation_id: str
+    max_runs: int
+    max_tool_calls: int
 
 
 class SubAgentTaskTool(BaseTool):
-    name="task"
-    description="Spawn a subagent with fresh context."
-    input_model=TaskInput
+    name = "task"
+    description = "Spawn a subagent with fresh context."
+    input_model = TaskInput
     agent_types = {"parent"}
     project_path_fields = {"path"}
 
-
     async def run(self, arguments: TaskInput):
         from code_harness.core.agent import Agent
+        from code_harness.core.config import get_model_id
         from code_harness.core.loop import Loop
         from code_harness.core.permissions import PermissionEngine
         from code_harness.core.tracing import save_trace, utc_now_iso
         from code_harness.memory.context import ConversationStore, MessageRecord
-        from code_harness.models import XIAOMI_MIMO_V25_PRO
 
         print(f"calling sub agent with {arguments}")
-        SYSTEM_PROMPT= f"""
+        SYSTEM_PROMPT = """
             You are a focused sub-agent working on behalf of a parent agent.
 
             Your job:
@@ -64,7 +64,7 @@ class SubAgentTaskTool(BaseTool):
         sub_conversation_id = f"conv_{uuid4().hex}"
         conversation_store = ConversationStore()
         tool_registry = get_tools("sub_agent")
-        permission_engine= PermissionEngine()
+        permission_engine = PermissionEngine()
         permission_engine.load_settings_json()
         agent = Agent(
             name="Sub agent",
@@ -72,15 +72,19 @@ class SubAgentTaskTool(BaseTool):
             assignment="Complete only the delegated task with fresh context and report the result to the parent agent.",
             toolset=tool_registry,
             system_prompt=SYSTEM_PROMPT,
-            model=XIAOMI_MIMO_V25_PRO,
+            model=get_model_id(),
         )
-        loop=Loop(
+        loop = Loop(
             agent,
             permission_engine,
             max_runs=arguments.max_runs,
             max_tool_calls=arguments.max_tool_calls,
         )
-        conversation_store.append_record(MessageRecord.system(conversation_id=sub_conversation_id, content=loop.system_prompt))
+        conversation_store.append_record(
+            MessageRecord.system(
+                conversation_id=sub_conversation_id, content=loop.system_prompt
+            )
+        )
         result = None
         try:
             result = await loop.run(
@@ -88,13 +92,15 @@ class SubAgentTaskTool(BaseTool):
                 sub_conversation_id,
                 arguments.prompt,
             )
-            return json.dumps({
-                "status": result.status,
-                "runs": result.runs,
-                "tool_calls": result.tool_calls,
-                "summary": result.summary,
-                "sub_conversation_id": sub_conversation_id,
-            })
+            return json.dumps(
+                {
+                    "status": result.status,
+                    "runs": result.runs,
+                    "tool_calls": result.tool_calls,
+                    "summary": result.summary,
+                    "sub_conversation_id": sub_conversation_id,
+                }
+            )
         finally:
             ended_at = utc_now_iso()
             save_trace(
@@ -104,6 +110,8 @@ class SubAgentTaskTool(BaseTool):
                 user_input=arguments.prompt,
                 conversation_id=sub_conversation_id,
                 parent_conversation_id=arguments.parent_conversation_id,
-                messages=conversation_store.get_records_by_conversation_id(sub_conversation_id),
+                messages=conversation_store.get_records_by_conversation_id(
+                    sub_conversation_id
+                ),
                 trace_type="subagent",
             )

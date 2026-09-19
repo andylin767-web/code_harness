@@ -1,8 +1,8 @@
+import json
 import tempfile
 import threading
 import unittest
 from datetime import datetime
-import json
 from pathlib import Path
 
 from code_harness.cron_scheduler.queue import CronEvent, CronEventQueue

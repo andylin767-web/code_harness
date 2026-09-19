@@ -1,20 +1,18 @@
 import asyncio
-from datetime import UTC, datetime
 import json
-from pathlib import Path
 import re
 import threading
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from code_harness.core.config import get_worktree_repository_root
 from code_harness.core.permissions import PROJECT_ROOT
-
 
 WORKTREE_NAME_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 _event_log_lock = threading.RLock()
-TARGET_REPOSITORY_ROOT = Path(
-    "/path/to/work-tree-repository"
-).resolve()
+TARGET_REPOSITORY_ROOT = get_worktree_repository_root(PROJECT_ROOT)
 MANAGED_WORKTREES_ROOT = (PROJECT_ROOT / ".worktrees").resolve()
 
 
@@ -29,9 +27,7 @@ class WorktreeManager:
         event_log_path: Path | None = None,
     ) -> None:
         self.repo_root = repo_root.resolve()
-        self.worktrees_dir = (
-            worktrees_dir or self.repo_root / ".worktrees"
-        ).resolve()
+        self.worktrees_dir = (worktrees_dir or self.repo_root / ".worktrees").resolve()
         self.task_manager = task_manager
         self.event_log_path = (
             event_log_path or self.worktrees_dir / "events.jsonl"
@@ -142,7 +138,6 @@ class WorktreeManager:
         self.validate_worktree_name(name)
         self.log_event("keep", name)
         return f"Worktree '{name}' kept for review"
-    
 
     async def _count_worktree_changes(self, path: Path) -> tuple[int, int]:
         """Count uncommitted files and commits in a worktree."""

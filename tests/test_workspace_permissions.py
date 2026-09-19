@@ -1,8 +1,7 @@
+import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase
-
-import json
 
 from code_harness.core.permissions import (
     PermissionDecision,
@@ -60,3 +59,17 @@ class WorkspacePermissionTests(TestCase):
             )
 
             self.assertEqual(decision, PermissionDecision.ALLOW)
+
+    def test_permission_details_identify_configured_rule_source(self):
+        with TemporaryDirectory() as workspace:
+            engine = PermissionEngine(workspace_root=Path(workspace))
+            engine.allow(Rule("bash", "pytest *"))
+            engine.ask(Rule("bash", "python *"))
+
+            allowed = engine.decide_with_details(Rule("bash", "pytest -q"))
+            asked = engine.decide_with_details(Rule("bash", "python -m pytest"))
+
+            self.assertEqual(allowed.decision, PermissionDecision.ALLOW)
+            self.assertEqual(allowed.source, "configured_allow")
+            self.assertEqual(asked.decision, PermissionDecision.ASK)
+            self.assertEqual(asked.source, "configured_ask")

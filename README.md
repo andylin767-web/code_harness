@@ -1,53 +1,272 @@
-# Python Basics
+# Code Harness
 
-A small collection of beginner-friendly Python scripts.
+A local-first, terminal-based coding-agent harness written in Python. It combines an event-driven agent loop, typed tools, workspace permissions, background execution, goal evaluation, teammate coordination, scheduled prompts, and inspectable JSON traces.
 
-## Files
+> [!NOTE]
+> This is an experimental developer project. Review `settings.json` and the configured model before using it on an important repository.
 
-### `hello_world.py`
+![Unified goal overview](docs/images/trace-dashboard.jpg)
 
-A classic "Hello, World!" program that prints a greeting to the console.
+## Highlights
 
-**Run it:**
+- **Interactive coding agent** powered through LiteLLM and OpenRouter.
+- **Typed tool system** with Pydantic validation and automatic tool discovery.
+- **Workspace safety** with allow, ask, and deny rules plus project-root path enforcement.
+- **Goal mode** that evaluates concrete completion conditions and automatically continues incomplete work.
+- **Background execution** for slow commands such as tests, builds, and installs.
+- **Event queue** shared by terminal input, background completions, cron jobs, and teammate messages.
+- **Teammates and subagents** with separate context, message passing, plan approval, task ownership, and Git worktrees.
+- **MCP-compatible tools** dynamically registered alongside local tools.
+- **Trace dashboard** that correlates user runs, background runs, tool calls, and goal evaluations into one timeline.
 
-```bash
-python hello_world.py
-```
+## Quick start
 
-**Output:**
+### Requirements
 
-```
-Hello, World!
-```
+- Python 3.12 or newer
+- An [OpenRouter](https://openrouter.ai/) API key
+- Git, if you want to use managed worktrees
 
----
-
-### `calculator.py`
-
-A simple interactive calculator supporting four basic arithmetic operations:
-
-| Operation  | Function     | Example          |
-|------------|--------------|------------------|
-| Addition   | `add(a, b)`  | `add(2, 3) → 5`  |
-| Subtraction| `subtract(a, b)` | `subtract(5, 2) → 3` |
-| Multiplication | `multiply(a, b)` | `multiply(4, 3) → 12` |
-| Division   | `divide(a, b)` | `divide(10, 2) → 5.0` |
-
-**Run the interactive menu:**
+### Installation
 
 ```bash
-python calculator.py
+git clone https://github.com/YOUR_USERNAME/code_harness.git
+cd code_harness
+
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+
+cp env.example .env
 ```
 
-**Use as a module:**
+Edit `.env` and add your OpenRouter key:
 
-```python
-from calculator import add, subtract, multiply, divide
-
-print(add(10, 5))       # 15
-print(subtract(10, 5))  # 5
-print(multiply(10, 5))  # 50
-print(divide(10, 5))    # 2.0
+```dotenv
+OPENROUTER_API_KEY=your_openrouter_api_key
+MODEL_ID=openrouter/provider/model-name
 ```
 
-> **Note:** Division by zero raises a `ZeroDivisionError`.
+Start the harness from the repository root:
+
+```bash
+PYTHONPATH=.. python main.py
+```
+
+On PowerShell:
+
+```powershell
+$env:PYTHONPATH = ".."
+python main.py
+```
+
+Type `exit` or `quit` to stop the application.
+
+## Short demo
+
+Set a verifiable goal directly from the terminal:
+
+```text
+> /goal python3 -m pytest exits with code 0
+Goal set: python3 -m pytest exits with code 0
+
+# The agent runs the tests. Slow commands can continue in the background.
+# When the result arrives, the independent evaluator checks the evidence.
+
+> /goal
+Goal: python3 -m pytest exits with code 0
+Status: completed
+Evaluations: 1
+Latest reason: The test command exited with code 0 and all tests passed.
+```
+
+Regular prompts do not require goal mode:
+
+```text
+> Find the bug in test_workspace/calculator.py, fix it, and run its tests.
+```
+
+Goal commands:
+
+| Command | Purpose |
+| --- | --- |
+| `/goal <condition>` | Set or replace a goal and begin work |
+| `/goal` or `/goal status` | Show the active or most recent goal |
+| `/goal clear` | Clear the active goal |
+| `/goal help` | Show command help |
+
+## Trace dashboard
+
+Open `trace_viewer.html` in a browser. You can then:
+
+1. Click **Load demo** to explore a sanitized example immediately.
+2. Choose one JSON or JSONL trace for a single-run view.
+3. Choose multiple related files for correlation.
+4. Choose the entire `traces/` folder for a unified goal timeline.
+
+The dashboard joins files through `goal_id`, `conversation_id`, `run_id`, `event_id`, and `background_task_id`. It shows the goal outcome, run boundaries, messages, token estimates, tool arguments, background results, nested LLM calls, and evaluator decisions. Missing referenced runs are reported explicitly.
+
+![Tool-call details in the unified timeline](docs/images/trace-tool-call.jpg)
+
+Trace files are local runtime artifacts and are ignored by Git. They can contain prompts, model responses, tool arguments, and command output, so inspect them before sharing.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    User[Terminal user] --> Input[InputBroker]
+    Input --> Queue[EventQueue]
+    Cron[Cron scheduler] --> Queue
+    Team[Teammate inbox] --> Queue
+    Background[BackgroundTaskRunner] --> Queue
+
+    Queue --> Processor[QueueProcessor]
+    Processor --> Loop[Agent Loop]
+    Loop <--> Memory[ConversationStore]
+    Loop --> Context[Context builder]
+    Context --> LLM[LiteLLM / OpenRouter]
+    LLM --> Loop
+
+    Loop --> Permissions[PermissionEngine]
+    Permissions --> Registry[ToolRegistry]
+    Registry --> Tools[Files · Bash · Tasks · Team · Cron · MCP]
+    Tools --> Loop
+    Tools --> Background
+
+    Loop --> Goals[GoalController]
+    Goals --> Evaluator[Independent goal evaluator]
+    Evaluator --> LLM
+
+    Processor --> Traces[JSON run traces]
+    Goals --> GoalTraces[JSONL goal lifecycle]
+    Traces --> Viewer[Trace dashboard]
+    GoalTraces --> Viewer
+```
+
+### Runtime flow
+
+1. `main.py` initializes the model, tools, permissions, event queue, goal controller, scheduler, and terminal input broker.
+2. Terminal input becomes an event rather than invoking the model directly.
+3. `QueueProcessor` serializes events into the agent loop and records a trace for each run.
+4. The loop builds model context, calls LiteLLM, validates tool calls, applies permissions, and records tool results.
+5. Slow operations can return immediately and publish a background-completion event later.
+6. When goal mode is active, an independent evaluator checks the accumulated work record before allowing the run to stop.
+7. The trace dashboard reconstructs an end-to-end timeline across run and goal files.
+
+### Main modules
+
+| Path | Responsibility |
+| --- | --- |
+| `main.py` | Interactive entry point and runtime assembly |
+| `core/loop.py` | Agent/tool loop, stop handling, and background coordination |
+| `core/permissions.py` | Permission rules, workspace boundaries, and command review |
+| `core/background_task.py` | Threaded execution and completion notifications |
+| `core/tracing.py` | Run traces, goal events, correlation IDs, and redaction |
+| `memory/` | Conversation records, context selection, summaries, and compaction |
+| `events/` | FIFO event models, persistence, and queue processing |
+| `goals/` | Goal commands, state, evidence context, evaluation, and persistence models |
+| `tools/` | Local tools, validation, task management, cron, team, and worktrees |
+| `team/` | Teammate mailboxes and typed coordination protocols |
+| `mcp/` | MCP client abstraction and dynamic tool registration |
+| `cron_scheduler/` | One-shot and recurring scheduled agent events |
+| `trace_viewer.html` | Standalone correlated trace dashboard |
+| `tests/` | Unit and integration-style test suite |
+
+## Configuration
+
+### Environment variables
+
+| Variable | Required | Description |
+| --- | --- | --- |
+| `OPENROUTER_API_KEY` | Yes | API key used by LiteLLM for OpenRouter calls |
+| `MODEL_ID` | Yes | Model used by the lead agent, subagents, command review, and LLM summarizer |
+| `WORKTREE_REPOSITORY_ROOT` | No | Repository managed by worktree tools; defaults to this repository |
+| `GOAL_EVALUATOR_MODEL_ID` | No | Overrides the worker model for independent goal evaluation |
+
+When `GOAL_EVALUATOR_MODEL_ID` is omitted, goal evaluation uses `MODEL_ID`.
+
+### Permissions and MCP
+
+`settings.json` controls:
+
+- `permissions.allow`: operations that can run without confirmation.
+- `permissions.ask`: operations that require approval.
+- `permissions.deny`: operations that must not run.
+- `mcp.servers`: MCP server names connected during startup.
+
+Deny rules take precedence. Bash commands are also checked for dangerous patterns, denied paths, workspace escapes, and ambiguous operations. The bundled `docs` and `deploy` MCP servers are local examples for exercising dynamic MCP tool registration.
+
+## Testing
+
+Install the development toolchain once:
+
+```bash
+python3 -m pip install -r requirements-dev.txt
+python3 -m pre_commit install
+```
+
+Format and automatically fix safe lint findings:
+
+```bash
+make format
+```
+
+Run the same non-mutating quality gate used in CI:
+
+```bash
+make check
+```
+
+Run the complete suite from the repository root:
+
+```bash
+python3 -m pytest
+```
+
+Run one test module:
+
+```bash
+python3 -m pytest tests/test_goal_controller.py -q
+```
+
+Latest verified result on Python 3.12:
+
+```text
+201 passed, 6 subtests passed in 1.47s
+```
+
+The suite covers the agent loop, permissions, workspace isolation, background tasks, event processing, goal evaluation, trace persistence, MCP registration, teammate protocols, cron scheduling, and worktree behavior. External model calls are mocked in tests.
+
+## Runtime data
+
+The harness creates local state while it runs:
+
+| Path | Contents |
+| --- | --- |
+| `traces/` | Per-run JSON traces and per-goal JSONL timelines |
+| `.mailboxes/` | Teammate messages |
+| `.tasks/` | Task state |
+| `.worktrees/` | Managed worktree metadata and directories |
+| `.scheduled_tasks.json` | Durable scheduled prompts |
+| `.cron_events.json` | Scheduler event state |
+
+Secrets belong in `.env`, which is ignored by Git. Never commit API keys or publish raw traces without reviewing their contents.
+The GitHub Actions quality workflow scans the complete commit history with
+Gitleaks and rejects detected credentials.
+
+## Project status
+
+This repository is suitable for local development and experimentation. Current limitations include process-local conversation memory, file-based trace storage, example MCP servers, and no packaged web service or multi-user authentication.
+
+## Contributing
+
+1. Create a focused branch.
+2. Add or update tests for behavioral changes.
+3. Run `PYTHONPATH=.. pytest`.
+4. Describe permission or configuration changes clearly in the pull request.
+
+Use Python 3.12-compatible syntax, four-space indentation, type hints for public interfaces, and the existing `test_*.py` naming convention.
+
+## License
+
+No license file is currently included. Add a license before inviting redistribution or external contributions.

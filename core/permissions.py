@@ -1,8 +1,9 @@
-from enum import Enum
 import fnmatch
 import json
 import re
 import shlex
+from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 from typing import Literal
 
@@ -22,8 +23,8 @@ TOOL_NAME_ALIASES = {
     "todo": "todo",
 }
 
-class Rule:
 
+class Rule:
     def __init__(self, tool_name, pattern="*"):
         self.tool_name = normalize_tool_name(tool_name)
         self.pattern = pattern or "*"
@@ -43,15 +44,24 @@ def normalize_tool_name(tool_name: str) -> str:
     key = tool_name.strip().lower()
     return TOOL_NAME_ALIASES.get(key, key)
 
+
 class PermissionDecision(Enum):
     ALLOW = "allow"
     DENY = "deny"
     ASK = "ask"
 
+
+@dataclass(frozen=True)
+class PermissionOutcome:
+    decision: PermissionDecision
+    source: str
+    reason: str = ""
+
+
 GRAY_AREA_PATTERNS = [
-    r"[|;&]",                 # pipes / command chaining
-    r">\s*|>>\s*|<\s*",       # redirection
-    r"\$\(|`",                # substitution
+    r"[|;&]",  # pipes / command chaining
+    r">\s*|>>\s*|<\s*",  # redirection
+    r"\$\(|`",  # substitution
     r"\b(npm|pip|brew|apt|cargo|go)\s+(install|add|get)\b",
     r"\b(curl|wget|ssh|scp|rsync)\b",
     r"\b(/etc|/var|/usr|/bin|/sbin|~/.ssh)\b",
@@ -89,9 +99,9 @@ async def review_command_with_llm(
 
         llm_client = LLMClient()
     if model is None:
-        from code_harness.models import ROUTER_MODEL
+        from code_harness.core.config import get_model_id
 
-        model = ROUTER_MODEL
+        model = get_model_id()
 
     prompt = f"""You are a command safety reviewer for a coding-agent workspace.
 
@@ -127,25 +137,28 @@ Return ONLY valid JSON with this exact schema:
 
 
 class PermissionEngine:
-
     DANGEROUS_PATTERNS = [
-            r"rm\s+-rf\s+/",
-            r"mkfs",
-            r"dd\s+if=",
-            r":\(\)\s*\{.*\}",   # fork bomb
-            r">\s*/dev/sd",
-        ]
-    
+        r"rm\s+-rf\s+/",
+        r"mkfs",
+        r"dd\s+if=",
+        r":\(\)\s*\{.*\}",  # fork bomb
+        r">\s*/dev/sd",
+    ]
+
     def __init__(self, workspace_root: str | Path = PROJECT_ROOT):
-        self.allow_rules=[]
-        self.deny_rules=[]
-        self.ask_rules=[]
+        self.allow_rules = []
+        self.deny_rules = []
+        self.ask_rules = []
         self.set_workspace_root(workspace_root)
 
     def set_workspace_root(self, workspace_root: str | Path) -> None:
         self.workspace_root = Path(workspace_root).expanduser().resolve()
 
-    def load_settings_json(self, path: str | Path = PROJECT_ROOT / "settings.json", clear_existing: bool = True) -> None:
+    def load_settings_json(
+        self,
+        path: str | Path = PROJECT_ROOT / "settings.json",
+        clear_existing: bool = True,
+    ) -> None:
         settings_path = Path(path).expanduser()
         if not settings_path.is_absolute():
             settings_path = PROJECT_ROOT / settings_path
@@ -232,8 +245,7 @@ class PermissionEngine:
             or "\\" in token
         )
 
-
-    def _has_tool_rule(self,rules, tool_name: str) -> bool:
+    def _has_tool_rule(self, rules, tool_name: str) -> bool:
         normalized_tool_name = normalize_tool_name(tool_name)
         return any(rule.tool_name == normalized_tool_name for rule in rules)
 
@@ -291,44 +303,57 @@ class PermissionEngine:
         if "**/" in pattern:
             candidates.append(pattern.replace("**/", ""))
         return list(dict.fromkeys(candidates))
-    
-    def allow(self, rule:Rule):
+
+    def allow(self, rule: Rule):
         self.allow_rules.append(rule)
 
-    def ask(self, rule:Rule):
+    def ask(self, rule: Rule):
         self.ask_rules.append(rule)
 
-    def deny(self, rule:Rule):
+    def deny(self, rule: Rule):
         self.deny_rules.append(rule)
 
-
-
-    def decide(self, rule: Rule)->PermissionDecision:
+    def decide_with_details(self, rule: Rule) -> PermissionOutcome:
 
         content = self._content_for_match(rule)
 
         if self._matches_any_rule(self.deny_rules, rule):
-            return PermissionDecision.DENY
+            return PermissionOutcome(PermissionDecision.DENY, "configured_deny")
 
         if rule.tool_name == "bash":
             for pattern in PermissionEngine.DANGEROUS_PATTERNS:
                 if re.search(pattern, content):
-                    return PermissionDecision.DENY
+                    return PermissionOutcome(
+                        PermissionDecision.DENY,
+                        "dangerous_command_policy",
+                    )
 
-        if rule.tool_name == "bash" and self.command_references_outside_workspace(content):
-            return PermissionDecision.DENY
+        if rule.tool_name == "bash" and self.command_references_outside_workspace(
+            content
+        ):
+            return PermissionOutcome(
+                PermissionDecision.DENY,
+                "outside_workspace_policy",
+            )
 
-        if rule.tool_name == "bash" and self.command_references_denied_read_path(content):
-            return PermissionDecision.DENY
+        if rule.tool_name == "bash" and self.command_references_denied_read_path(
+            content
+        ):
+            return PermissionOutcome(
+                PermissionDecision.DENY,
+                "denied_read_policy",
+            )
 
         if self._matches_any_rule(self.ask_rules, rule):
-            return PermissionDecision.ASK
-                
-        
+            return PermissionOutcome(PermissionDecision.ASK, "configured_ask")
+
         if self._matches_any_rule(self.allow_rules, rule):
-            return PermissionDecision.ALLOW
-        
-        return PermissionDecision.ASK
+            return PermissionOutcome(PermissionDecision.ALLOW, "configured_allow")
+
+        return PermissionOutcome(PermissionDecision.ASK, "default_ask")
+
+    def decide(self, rule: Rule) -> PermissionDecision:
+        return self.decide_with_details(rule).decision
 
     async def decide_bash_with_llm_fallback(
         self,
@@ -336,14 +361,30 @@ class PermissionEngine:
         llm_client=None,
         model: str | None = None,
     ) -> PermissionDecision:
-        rule = Rule("bash", json.dumps({"command": command}))
-        deterministic_decision = self.decide(rule)
+        outcome = await self.decide_bash_with_llm_fallback_details(
+            command,
+            llm_client=llm_client,
+            model=model,
+        )
+        return outcome.decision
 
-        if deterministic_decision in {PermissionDecision.ALLOW, PermissionDecision.DENY}:
-            return deterministic_decision
+    async def decide_bash_with_llm_fallback_details(
+        self,
+        command: str,
+        llm_client=None,
+        model: str | None = None,
+    ) -> PermissionOutcome:
+        rule = Rule("bash", json.dumps({"command": command}))
+        deterministic_outcome = self.decide_with_details(rule)
+
+        if deterministic_outcome.decision in {
+            PermissionDecision.ALLOW,
+            PermissionDecision.DENY,
+        }:
+            return deterministic_outcome
 
         if not is_gray_area_command(command):
-            return PermissionDecision.ASK
+            return deterministic_outcome
 
         try:
             review = await review_command_with_llm(
@@ -352,10 +393,19 @@ class PermissionEngine:
                 model=model,
             )
         except Exception:
-            return PermissionDecision.ASK
+            return PermissionOutcome(
+                PermissionDecision.ASK,
+                "llm_safety_review_error",
+            )
 
         if review.decision == "allow":
-            return PermissionDecision.ALLOW
-        if review.decision == "deny":
-            return PermissionDecision.DENY
-        return PermissionDecision.ASK
+            decision = PermissionDecision.ALLOW
+        elif review.decision == "deny":
+            decision = PermissionDecision.DENY
+        else:
+            decision = PermissionDecision.ASK
+        return PermissionOutcome(
+            decision,
+            "llm_safety_review",
+            review.reason,
+        )

@@ -44,9 +44,7 @@ class ToolRegistryTests(unittest.TestCase):
         self.assertNotIn("summarize_python_files", tool_names)
         self.assertIn("llm_summarize_python_files", tool_names)
         self.assertTrue(
-            {"list_tasks", "claim_task", "complete_task"}.issubset(
-                tool_names
-            )
+            {"list_tasks", "claim_task", "complete_task"}.issubset(tool_names)
         )
 
     def test_llm_summarizer_is_terminal(self):
@@ -57,9 +55,7 @@ class ToolRegistryTests(unittest.TestCase):
 
     def test_protocol_tools_are_registered_for_correct_agent_types(self):
         parent_tools = {tool.name for tool in get_tools("parent").values()}
-        teammate_tools = {
-            tool.name for tool in get_tools("sub_agent").values()
-        }
+        teammate_tools = {tool.name for tool in get_tools("sub_agent").values()}
 
         lead_only = {"request_shutdown", "request_plan", "review_plan"}
         self.assertTrue(lead_only.issubset(parent_tools))
@@ -70,9 +66,7 @@ class ToolRegistryTests(unittest.TestCase):
 
     def test_worktree_tools_are_available_only_to_team_lead(self):
         parent_tools = {tool.name for tool in get_tools("parent").values()}
-        teammate_tools = {
-            tool.name for tool in get_tools("sub_agent").values()
-        }
+        teammate_tools = {tool.name for tool in get_tools("sub_agent").values()}
         worktree_tools = {
             "create_worktree",
             "remove_worktree",

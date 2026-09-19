@@ -1,5 +1,4 @@
 from enum import StrEnum
-from typing import TypeAlias
 
 from code_harness.team.protocol_state import ProtocolType
 
@@ -10,7 +9,7 @@ class MessageType(StrEnum):
     ERROR = "error"
 
 
-MessageKind: TypeAlias = MessageType | ProtocolType | str
+type MessageKind = MessageType | ProtocolType | str
 
 
 def message_type_value(message_type: MessageKind) -> str:

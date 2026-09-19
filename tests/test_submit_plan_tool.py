@@ -1,13 +1,12 @@
 import unittest
 from unittest.mock import Mock
 
-from pydantic import ValidationError
-
 from code_harness.team.protocol_manager import ProtocolManager
 from code_harness.team.protocol_state import ProtocolStatus, ProtocolType
 from code_harness.team.send import Sender
 from code_harness.tools.team import SubmitPlanInput, SubmitPlanTool
 from code_harness.tools.tools import get_tools
+from pydantic import ValidationError
 
 
 class SubmitPlanToolTests(unittest.TestCase):

@@ -1,17 +1,16 @@
-from contextlib import contextmanager
-from dataclasses import asdict, dataclass
 import json
 import os
-from pathlib import Path
 import threading
 import time
+from contextlib import contextmanager
+from dataclasses import asdict, dataclass
+from pathlib import Path
 from typing import Literal
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
 from code_harness.tools.tools import BaseTool
-
 
 _task_locks_guard = threading.Lock()
 _task_locks: dict[Path, threading.RLock] = {}
@@ -62,14 +61,13 @@ class Task:
     id: str
     subject: str
     description: str
-    status: str          # pending | in_progress | completed
-    owner: str | None    # Agent name (multi-agent scenarios)
-    blockedBy: list[str] # Dependency task IDs
+    status: str  # pending | in_progress | completed
+    owner: str | None  # Agent name (multi-agent scenarios)
+    blockedBy: list[str]  # Dependency task IDs
     worktree: str | None = None
 
 
 class TaskManager:
-
     def __init__(self, tasks_dir: Path | None = None):
         self.TASKS_DIR = tasks_dir or Path(__file__).resolve().parents[1] / ".tasks"
         self.TASKS_DIR.mkdir(parents=True, exist_ok=True)
@@ -79,18 +77,17 @@ class TaskManager:
     def _task_path(self, task_id: str) -> Path:
         return self.TASKS_DIR / f"{task_id}.json"
 
-    def save_task(self,task: Task):
-       self._task_path(task.id).write_text(json.dumps(asdict(task), indent=2))
-
+    def save_task(self, task: Task):
+        self._task_path(task.id).write_text(json.dumps(asdict(task), indent=2))
 
     def load_task(self, task_id: str) -> Task:
         return Task(**json.loads(self._task_path(task_id).read_text()))
 
-
     def list_tasks(self) -> list[Task]:
-        return [Task(**json.loads(p.read_text()))
-                for p in sorted(self.TASKS_DIR.glob("task_*.json"))]
-
+        return [
+            Task(**json.loads(p.read_text()))
+            for p in sorted(self.TASKS_DIR.glob("task_*.json"))
+        ]
 
     def create_task(
         self,
@@ -109,15 +106,13 @@ class TaskManager:
         )
         self.save_task(task)
         return json.dumps(asdict(task), indent=2)
-    
 
-    def get_task(self,task_id: str) -> str:
+    def get_task(self, task_id: str) -> str:
         """Return full task details as JSON."""
         task = self.load_task(task_id)
         return json.dumps(asdict(task), indent=2)
 
-
-    def can_start(self,task_id: str) -> bool:
+    def can_start(self, task_id: str) -> bool:
         """Check if all blockedBy dependencies are completed.
         Missing dependencies are treated as blocked."""
         task = self.load_task(task_id)
@@ -128,24 +123,24 @@ class TaskManager:
                 return False
         return True
 
-
     def claim_task(self, task_id: str, owner: str = "agent") -> str:
         """Atomically claim a pending task whose dependencies are complete."""
-        with self._claim_thread_lock:
-            with _exclusive_file_lock(self._claim_lock_path):
-                task = self.load_task(task_id)
-                if task.status != "pending":
-                    return f"Task {task_id} is {task.status}, cannot claim"
+        with self._claim_thread_lock, _exclusive_file_lock(self._claim_lock_path):
+            task = self.load_task(task_id)
+            if task.status != "pending":
+                return f"Task {task_id} is {task.status}, cannot claim"
 
-                blocked_by = self._blocking_dependencies(task)
-                if blocked_by:
-                    return f"Blocked by: {blocked_by}"
+            blocked_by = self._blocking_dependencies(task)
+            if blocked_by:
+                return f"Blocked by: {blocked_by}"
 
-                task.owner = owner
-                task.status = "in_progress"
-                self.save_task(task)
+            task.owner = owner
+            task.status = "in_progress"
+            self.save_task(task)
 
-        print(f"  \033[36m[claim] {task.subject} -> in_progress (owner: {owner})\033[0m")
+        print(
+            f"  \033[36m[claim] {task.subject} -> in_progress (owner: {owner})\033[0m"
+        )
         return f"Claimed {task.id} ({task.subject})"
 
     def _blocking_dependencies(self, task: Task) -> list[str]:
@@ -159,19 +154,20 @@ class TaskManager:
                 blocked_by.append(dependency_id)
         return blocked_by
 
-
     def complete_task(self, task_id: str, owner: str | None = None) -> str:
         task = self.load_task(task_id)
         if task.status == "completed":
             return f"Task {task_id} is already completed"
         if owner is not None and task.owner not in (None, owner):
-            return f"Task {task_id} is owned by {task.owner}, cannot complete as {owner}"
+            return (
+                f"Task {task_id} is owned by {task.owner}, cannot complete as {owner}"
+            )
         task.status = "completed"
         if owner is not None:
             task.owner = owner
         self.save_task(task)
         return f"Completed {task.id} ({task.subject})"
-    
+
     def scan_unclaimed_tasks(self) -> list[Task]:
         """Return pending, unowned tasks whose dependencies are complete."""
         return [
@@ -275,4 +271,3 @@ class TaskCompleteTool(BaseTool):
 
     def run(self, arguments: TaskCompleteInput) -> str:
         return TaskManager().complete_task(arguments.task_id, owner=arguments.owner)
-    
