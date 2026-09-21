@@ -16,7 +16,7 @@ A local-first, terminal-based coding-agent harness written in Python. It combine
 - **Background execution** for slow commands such as tests, builds, and installs.
 - **Event queue** shared by terminal input, background completions, cron jobs, and teammate messages.
 - **Teammates and subagents** with separate context, message passing, plan approval, task ownership, and Git worktrees.
-- **MCP-compatible tools** dynamically registered alongside local tools.
+- **MCP tools over stdio** discovered from real subprocess servers through the 2025-11-25 handshake and registered alongside local tools.
 - **Trace dashboard** that correlates user runs, background runs, tool calls, and goal evaluations into one timeline.
 
 ## Quick start
@@ -30,12 +30,12 @@ A local-first, terminal-based coding-agent harness written in Python. It combine
 ### Installation
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/code_harness.git
+git clone <repository-url>
 cd code_harness
 
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+python3 -m pip install -e .
 
 cp env.example .env
 ```
@@ -47,20 +47,15 @@ OPENROUTER_API_KEY=your_openrouter_api_key
 MODEL_ID=openrouter/provider/model-name
 ```
 
-Start the harness from the repository root:
+Start the harness for the current repository:
 
 ```bash
-PYTHONPATH=.. python main.py
+code-harness --workspace .
 ```
 
-On PowerShell:
-
-```powershell
-$env:PYTHONPATH = ".."
-python main.py
-```
-
-Type `exit` or `quit` to stop the application.
+The default runtime directory is `<workspace>/.code-harness/`. Use
+`--state-dir` or `--settings` to override either location. Type `exit` or
+`quit` to stop the application.
 
 ## Short demo
 
@@ -102,7 +97,7 @@ Open `trace_viewer.html` in a browser. You can then:
 1. Click **Load demo** to explore a sanitized example immediately.
 2. Choose one JSON or JSONL trace for a single-run view.
 3. Choose multiple related files for correlation.
-4. Choose the entire `traces/` folder for a unified goal timeline.
+4. Choose the entire `.code-harness/traces/` folder for a unified goal timeline.
 
 The dashboard joins files through `goal_id`, `conversation_id`, `run_id`, `event_id`, and `background_task_id`. It shows the goal outcome, run boundaries, messages, token estimates, tool arguments, background results, nested LLM calls, and evaluator decisions. Missing referenced runs are reported explicitly.
 
@@ -145,7 +140,7 @@ flowchart LR
 
 ### Runtime flow
 
-1. `main.py` initializes the model, tools, permissions, event queue, goal controller, scheduler, and terminal input broker.
+1. `main.py` parses CLI options and `core/application.py` owns runtime assembly and shutdown.
 2. Terminal input becomes an event rather than invoking the model directly.
 3. `QueueProcessor` serializes events into the agent loop and records a trace for each run.
 4. The loop builds model context, calls LiteLLM, validates tool calls, applies permissions, and records tool results.
@@ -157,8 +152,11 @@ flowchart LR
 
 | Path | Responsibility |
 | --- | --- |
-| `main.py` | Interactive entry point and runtime assembly |
+| `main.py` | Small command-line entry point |
+| `core/application.py` | Runtime dependency assembly and managed shutdown |
 | `core/loop.py` | Agent/tool loop, stop handling, and background coordination |
+| `core/tool_execution.py` | Permission-aware tool-call execution |
+| `core/subagents.py` | Bounded one-shot subagent execution |
 | `core/permissions.py` | Permission rules, workspace boundaries, and command review |
 | `core/background_task.py` | Threaded execution and completion notifications |
 | `core/tracing.py` | Run traces, goal events, correlation IDs, and redaction |
@@ -192,16 +190,34 @@ When `GOAL_EVALUATOR_MODEL_ID` is omitted, goal evaluation uses `MODEL_ID`.
 - `permissions.allow`: operations that can run without confirmation.
 - `permissions.ask`: operations that require approval.
 - `permissions.deny`: operations that must not run.
-- `mcp.servers`: MCP server names connected during startup.
+- `mcp.servers`: bundled mock names or named stdio server definitions connected during startup.
 
-Deny rules take precedence. Bash commands are also checked for dangerous patterns, denied paths, workspace escapes, and ambiguous operations. The bundled `docs` and `deploy` MCP servers are local examples for exercising dynamic MCP tool registration.
+Deny rules take precedence. Bash commands are also checked for dangerous patterns, denied paths, workspace escapes, and ambiguous operations. The bundled `docs` and `deploy` names are deterministic test/demo servers.
+
+For a real MCP subprocess, use a named object. Reference credentials through
+environment variables instead of writing values into `settings.json`:
+
+```json
+{
+  "mcp": {
+    "servers": {
+      "filesystem": {
+        "transport": "stdio",
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-filesystem", "."],
+        "env": {"SERVICE_TOKEN": "${SERVICE_TOKEN}"}
+      }
+    }
+  }
+}
+```
 
 ## Testing
 
 Install the development toolchain once:
 
 ```bash
-python3 -m pip install -r requirements-dev.txt
+python3 -m pip install -e ".[dev]"
 python3 -m pre_commit install
 ```
 
@@ -232,10 +248,10 @@ python3 -m pytest tests/test_goal_controller.py -q
 Latest verified result on Python 3.12:
 
 ```text
-201 passed, 6 subtests passed in 1.47s
+208 passed, 6 subtests passed
 ```
 
-The suite covers the agent loop, permissions, workspace isolation, background tasks, event processing, goal evaluation, trace persistence, MCP registration, teammate protocols, cron scheduling, and worktree behavior. External model calls are mocked in tests.
+The suite covers the agent loop, permissions, workspace isolation, application lifecycle, background tasks, event processing, goal evaluation, trace persistence, real MCP stdio transport, teammate protocols, cron scheduling, and worktree behavior. External model calls are mocked in tests. CI enforces at least 70% branch-aware coverage.
 
 ## Runtime data
 
@@ -243,12 +259,12 @@ The harness creates local state while it runs:
 
 | Path | Contents |
 | --- | --- |
-| `traces/` | Per-run JSON traces and per-goal JSONL timelines |
-| `.mailboxes/` | Teammate messages |
-| `.tasks/` | Task state |
-| `.worktrees/` | Managed worktree metadata and directories |
-| `.scheduled_tasks.json` | Durable scheduled prompts |
-| `.cron_events.json` | Scheduler event state |
+| `.code-harness/traces/` | Per-run JSON traces and per-goal JSONL timelines |
+| `.code-harness/.mailboxes/` | Teammate messages |
+| `.code-harness/.tasks/` | Task state |
+| `.code-harness/.worktrees/` | Managed worktree metadata and directories |
+| `.code-harness/.scheduled_tasks.json` | Durable scheduled prompts |
+| `.code-harness/.cron_events.json` | Scheduler event state |
 
 Secrets belong in `.env`, which is ignored by Git. Never commit API keys or publish raw traces without reviewing their contents.
 The GitHub Actions quality workflow scans the complete commit history with
@@ -256,17 +272,17 @@ Gitleaks and rejects detected credentials.
 
 ## Project status
 
-This repository is suitable for local development and experimentation. Current limitations include process-local conversation memory, file-based trace storage, example MCP servers, and no packaged web service or multi-user authentication.
+This repository is suitable for local development and experimentation. Current limitations include process-local conversation memory, file-based trace storage, legacy-handshake stdio MCP transport (no 2026-07-28 negotiation yet), and no multi-user authentication.
 
 ## Contributing
 
 1. Create a focused branch.
 2. Add or update tests for behavioral changes.
-3. Run `PYTHONPATH=.. pytest`.
+3. Run `make check`.
 4. Describe permission or configuration changes clearly in the pull request.
 
 Use Python 3.12-compatible syntax, four-space indentation, type hints for public interfaces, and the existing `test_*.py` naming convention.
 
 ## License
 
-No license file is currently included. Add a license before inviting redistribution or external contributions.
+Released under the [MIT License](LICENSE).

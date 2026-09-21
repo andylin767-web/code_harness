@@ -16,8 +16,9 @@ _mailbox_lock = threading.RLock()
 
 
 class MessageBus:
-    def __init__(self, mail_box_dir: Path):
+    def __init__(self, mail_box_dir: Path, event_queue: Any | None = None):
         self.mailbox_dir = mail_box_dir
+        self.event_queue = event_queue
         self.mailbox_dir.mkdir(parents=True, exist_ok=True)
 
     def send(
@@ -42,7 +43,7 @@ class MessageBus:
         with _mailbox_lock, inbox_path.open("a", encoding="utf-8") as file:
             file.write(json.dumps(message) + "\n")
 
-        event_queue = get_event_queue()
+        event_queue = self.event_queue or get_event_queue()
         if to_agent == "lead" and event_queue is not None:
             event_queue.put(
                 new_event(

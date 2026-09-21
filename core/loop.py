@@ -13,11 +13,11 @@ from code_harness.core.background_task import BackgroundTaskRunner
 from code_harness.core.input_runtime import get_input_broker
 from code_harness.core.llm_client import LLMClient
 from code_harness.core.permissions import (
-    PermissionDecision,
     PermissionEngine,
     PermissionOutcome,
     Rule,
 )
+from code_harness.core.tool_execution import ToolCallProcessor
 from code_harness.core.tracing import record_goal_stage
 from code_harness.events.models import EventType, new_event
 from code_harness.events.queue import EventQueue
@@ -68,6 +68,8 @@ class Loop:
         max_run: int | None = None,
         event_queue: EventQueue | None = None,
         goal_controller: GoalController | None = None,
+        input_broker=None,
+        trace_recorder=record_goal_stage,
     ):
         if max_run is not None:
             max_runs = max_run
@@ -81,6 +83,9 @@ class Loop:
         self.context_Builder = ContextBuilder()
         self.skill_loader = SkillLoader(DEFAULT_SKILL_DIRS)
         self.goal_controller = goal_controller
+        self.input_broker = input_broker
+        self.trace_recorder = trace_recorder
+        self.tool_call_processor = ToolCallProcessor(self)
         self.system_prompt = (
             agent.build_system_prompt()
             + f"""
@@ -387,171 +392,16 @@ class Loop:
         workspace_root,
         trace_context,
     ) -> tuple[LoopResult | None, bool]:
-        saw_todo = False
-        for index, tool_call in enumerate(tool_calls):
-            if state.tool_calls >= self.max_tool_calls:
-                message = f"exceed max tool call {self.max_tool_calls}"
-                conversation_store.append_record(
-                    MessageRecord.developer(
-                        conversation_id=conversation_id,
-                        content=message,
-                    )
-                )
-                return (
-                    self._result(LoopStatus.MAX_TOOL_CALLS, state, message),
-                    saw_todo,
-                )
-
-            tool_name = tool_call.function.name
-            saw_todo = saw_todo or tool_name == "todo"
-            tool = tool_registry.get(tool_name)
-            if tool is None:
-                conversation_store.append_record(
-                    MessageRecord.tool(
-                        conversation_id=conversation_id,
-                        content=f"Unknown tool: {tool_name}",
-                        tool_call_id=tool_call.id,
-                    )
-                )
-                state.tool_calls += 1
-                continue
-
-            permission_outcome = await self._permission_decision(tool_call)
-            permission = permission_outcome.decision
-            if permission is PermissionDecision.DENY:
-                self._trace_permission_decision(
-                    trace_context,
-                    tool_call,
-                    decision="deny",
-                    source=permission_outcome.source,
-                    reason=permission_outcome.reason,
-                )
-                self._append_denied_tool_call(
-                    conversation_store,
-                    conversation_id,
-                    tool_call,
-                )
-                continue
-
-            if permission is PermissionDecision.ASK and not state.allow_all_actions:
-                self._trace_goal_stage(
-                    trace_context,
-                    "permission_requested",
-                    details={
-                        **self._tool_trace_details(tool_call),
-                        "source": permission_outcome.source,
-                        "reason": permission_outcome.reason,
-                    },
-                )
-                answer = self._request_permission(tool_call)
-                if answer in {"all", "a"}:
-                    state.allow_all_actions = True
-                    decision = "allow_all"
-                elif answer in {"no", "n"}:
-                    self._trace_permission_decision(
-                        trace_context,
-                        tool_call,
-                        decision="deny",
-                        source="user",
-                    )
-                    self._append_denied_tool_call(
-                        conversation_store,
-                        conversation_id,
-                        tool_call,
-                    )
-                    continue
-                elif answer not in {"yes", "y"}:
-                    self._trace_permission_decision(
-                        trace_context,
-                        tool_call,
-                        decision="deny",
-                        source="user_invalid_response",
-                    )
-                    self._append_denied_tool_call(
-                        conversation_store,
-                        conversation_id,
-                        tool_call,
-                        reason="answer was not yes, no, or all",
-                    )
-                    continue
-                else:
-                    decision = "allow"
-                self._trace_permission_decision(
-                    trace_context,
-                    tool_call,
-                    decision=decision,
-                    source="user",
-                )
-            elif permission is PermissionDecision.ALLOW:
-                self._trace_permission_decision(
-                    trace_context,
-                    tool_call,
-                    decision="allow",
-                    source=permission_outcome.source,
-                    reason=permission_outcome.reason,
-                )
-            elif permission is PermissionDecision.ASK and state.allow_all_actions:
-                self._trace_permission_decision(
-                    trace_context,
-                    tool_call,
-                    decision="allow",
-                    source="user_allow_all",
-                )
-
-            if background_runner.should_run_tool_call(tool_call):
-                background_id = background_runner.start(tool_call)
-                conversation_store.append_record(
-                    MessageRecord.tool(
-                        conversation_id=conversation_id,
-                        content=f"Started background task {background_id}",
-                        tool_call_id=tool_call.id,
-                    )
-                )
-                state.tool_calls += 1
-                self._trace_goal_stage(
-                    trace_context,
-                    "worker_deferred",
-                    background_task_id=background_id,
-                    details=self._tool_trace_details(tool_call),
-                )
-                self._append_skipped_tool_calls(
-                    tool_calls[index + 1 :],
-                    conversation_store,
-                    conversation_id,
-                    background_id,
-                )
-                message = f"Background task {background_id} is still running."
-                return (
-                    self._result(LoopStatus.GOAL_DEFERRED, state, message),
-                    saw_todo,
-                )
-
-            self._enrich_tool_call(tool_call, state, conversation_id)
-            tool_result = await run_tool(
-                tool,
-                tool_call,
-                workspace_root=workspace_root,
-            )
-            self._account_subagent_result(tool_name, tool_result.content, state)
-            state.tool_calls += 1
-            self._append_tool_result(
-                conversation_store,
-                conversation_id,
-                tool_call,
-                tool_result,
-            )
-
-            if getattr(tool, "terminal_after_run", False):
-                return (
-                    self._result(
-                        LoopStatus.COMPLETED,
-                        state,
-                        tool_result.content,
-                    ),
-                    saw_todo,
-                )
-
-        return None, saw_todo
+        return await self.tool_call_processor.process(
+            tool_calls=tool_calls,
+            state=state,
+            tool_registry=tool_registry,
+            background_runner=background_runner,
+            conversation_store=conversation_store,
+            conversation_id=conversation_id,
+            workspace_root=workspace_root,
+            trace_context=trace_context,
+        )
 
     def _goal_trace_context(
         self,
@@ -570,8 +420,8 @@ class Loop:
             "run_id": run_id,
         }
 
-    @staticmethod
     def _trace_goal_stage(
+        self,
         trace_context,
         stage: str,
         *,
@@ -580,7 +430,7 @@ class Loop:
     ) -> None:
         if trace_context is None:
             return
-        record_goal_stage(
+        self.trace_recorder(
             stage,
             goal_id=trace_context["goal_id"],
             conversation_id=trace_context["conversation_id"],
@@ -674,14 +524,13 @@ class Loop:
             "permission_engine",
         )
 
-    @staticmethod
-    def _request_permission(tool_call) -> str:
+    def _request_permission(self, tool_call) -> str:
         arguments_preview = (tool_call.function.arguments or "")[:60]
         prompt = (
             f"Allow this action function: {tool_call.function.name}, "
             f"arguments: {arguments_preview}? (yes/no/all):"
         )
-        input_broker = get_input_broker()
+        input_broker = self.input_broker or get_input_broker()
         if input_broker is None:
             answer = input(f"{prompt} ")
         else:

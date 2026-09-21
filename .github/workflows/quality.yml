@@ -41,7 +41,7 @@ jobs:
             requirements-dev.txt
 
       - name: Install dependencies
-        run: python -m pip install -r requirements-dev.txt
+        run: python -m pip install -e ".[dev]"
 
       - name: Lint
         run: python -m ruff check --output-format=github .
@@ -50,4 +50,4 @@ jobs:
         run: python -m ruff format --check .
 
       - name: Run tests
-        run: python -m pytest
+        run: python -m pytest --cov=code_harness --cov-report=term-missing

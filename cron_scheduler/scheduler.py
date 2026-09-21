@@ -1,6 +1,5 @@
 import json
 import threading
-import time
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
@@ -26,10 +25,30 @@ class CronScheduler:
         self._event_queue = event_queue
         self.DURABLE_PATH = work_dir / ".scheduled_tasks.json"
         self._last_fired: dict[str, str] = {}
+        self._stop_event = threading.Event()
+        self._thread: threading.Thread | None = None
 
-    def loop(self):
-        while True:
-            time.sleep(1)
+    def start(self) -> None:
+        """Start the scheduler once in a managed background thread."""
+        if self._thread is not None and self._thread.is_alive():
+            return
+        self._stop_event.clear()
+        self._thread = threading.Thread(
+            target=self.loop,
+            daemon=True,
+            name="cron-scheduler",
+        )
+        self._thread.start()
+
+    def stop(self, timeout: float = 2.0) -> None:
+        """Request shutdown and wait briefly for the scheduler thread."""
+        self._stop_event.set()
+        if self._thread is not None:
+            self._thread.join(timeout=timeout)
+            self._thread = None
+
+    def loop(self) -> None:
+        while not self._stop_event.wait(1):
             self._process_once(datetime.now())
 
     def _process_once(self, now: datetime) -> None:
@@ -215,10 +234,18 @@ class CronScheduler:
 
 
 def start_cron_scheduler_daemon(cron_scheduler: CronScheduler) -> threading.Thread:
-    scheduler_thread = threading.Thread(
+    """Compatibility wrapper for callers migrating to ``CronScheduler.start``."""
+    start = getattr(cron_scheduler, "start", None)
+    if callable(start):
+        start()
+        thread = getattr(cron_scheduler, "_thread", None)
+        if thread is not None:
+            return thread
+
+    thread = threading.Thread(
         target=cron_scheduler.loop,
         daemon=True,
         name="cron-scheduler",
     )
-    scheduler_thread.start()
-    return scheduler_thread
+    thread.start()
+    return thread

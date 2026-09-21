@@ -21,8 +21,14 @@ def _default_sender() -> Sender:
 class SenderTool(BaseTool):
     """Base class for tools that send or inspect team messages."""
 
-    def __init__(self, sender: Sender | None = None):
-        self.sender = sender if sender is not None else _default_sender()
+    def __init__(self, sender: Sender | None = None, services=None):
+        if sender is not None:
+            self.sender = sender
+        elif services is not None:
+            self.sender = Sender(services.message_bus)
+        else:
+            self.sender = _default_sender()
+        self.services = services
 
 
 class ProtocolTool(SenderTool):
@@ -32,10 +38,17 @@ class ProtocolTool(SenderTool):
         self,
         sender: Sender | None = None,
         protocol_manager: ProtocolManager | None = None,
+        services=None,
     ):
-        super().__init__(sender)
+        super().__init__(sender, services)
         self.protocol_manager = (
-            protocol_manager if protocol_manager is not None else get_protocol_manager()
+            protocol_manager
+            if protocol_manager is not None
+            else (
+                services.protocol_manager
+                if services is not None
+                else get_protocol_manager()
+            )
         )
 
 
@@ -73,6 +86,8 @@ class CheckInboxTool(SenderTool):
 
     def run(self, arguments: CheckInBoxInput) -> bool | list[dict]:
         if arguments.agent == "lead":
+            if self.services is not None and self.services.lead_inbox is not None:
+                return self.services.lead_inbox.consume()
             return consume_lead_inbox()
         return self.sender.peek(arguments.agent)
 
@@ -116,8 +131,14 @@ class SpawnTeammateTool(BaseTool):
     input_model = SpawnTeammateInput
     agent_types = {"parent"}
 
+    def __init__(self, services=None):
+        self.services = services
+
     def run(self, arguments: SpawnTeammateInput) -> str:
-        return get_lead_agent().spawn_teammate_thread(
+        lead_agent = (
+            self.services.lead_agent if self.services is not None else get_lead_agent()
+        )
+        return lead_agent.spawn_teammate_thread(
             name=arguments.name,
             role=arguments.role,
             assignment=arguments.assignment,

@@ -25,6 +25,7 @@ class QueueProcessor:
         poll_interval: float = 2.0,
         lead_inbox_consumer: Callable[[], list[dict]] = consume_lead_inbox,
         trace_saver: Callable[..., Any] | None = None,
+        input_broker=None,
     ):
         self._event_queue = event_queue
         self._loop = loop
@@ -34,6 +35,7 @@ class QueueProcessor:
         self._poll_interval = poll_interval
         self._consume_lead_inbox = lead_inbox_consumer
         self._trace_saver = trace_saver
+        self._input_broker = input_broker
         self._stop_event = threading.Event()
         self._thread = None
 
@@ -167,8 +169,7 @@ class QueueProcessor:
         except Exception as exc:
             print(f"  \033[31m[event trace failed] {exc}\033[0m")
 
-    @staticmethod
-    def _refresh_user_prompt() -> None:
-        input_broker = get_input_broker()
+    def _refresh_user_prompt(self) -> None:
+        input_broker = self._input_broker or get_input_broker()
         if input_broker is not None:
             input_broker.refresh_user_prompt()

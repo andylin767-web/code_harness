@@ -77,6 +77,7 @@ def record_goal_stage(
     run_id: str | None = None,
     background_task_id: str | None = None,
     details: dict[str, Any] | None = None,
+    trace_dir: Path | None = None,
 ) -> dict[str, Any]:
     """Append one sanitized lifecycle event to a goal-correlated JSONL trace."""
     event = {
@@ -91,7 +92,7 @@ def record_goal_stage(
     }
 
     safe_goal_id = _SAFE_TRACE_ID.sub("_", goal_id)
-    goal_trace_dir = TRACE_DIR / "goals"
+    goal_trace_dir = (trace_dir or TRACE_DIR).expanduser().resolve() / "goals"
     try:
         with _GOAL_TRACE_LOCK:
             goal_trace_dir.mkdir(parents=True, exist_ok=True)
@@ -116,8 +117,10 @@ def save_trace(
     messages,
     trace_type: str = "agent",
     parent_conversation_id: str | None = None,
+    trace_dir: Path | None = None,
 ):
-    TRACE_DIR.mkdir(exist_ok=True)
+    output_dir = (trace_dir or TRACE_DIR).expanduser().resolve()
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     trace = {
         "run_id": run_id,
@@ -131,6 +134,6 @@ def save_trace(
         "nested_llm_calls": pop_nested_llm_calls(),
     }
 
-    trace_path = TRACE_DIR / f"{trace_type}_{run_id}.json"
+    trace_path = output_dir / f"{trace_type}_{run_id}.json"
     trace_path.write_text(json.dumps(trace, indent=2, default=str), encoding="utf-8")
     return trace_path

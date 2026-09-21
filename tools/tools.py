@@ -84,12 +84,13 @@ class ToolRegistry:
         cls,
         packages: Iterable[str] | None = None,
         agent_type: Literal["parent", "sub_agent"] | None = None,
+        services: Any | None = None,
     ) -> "ToolRegistry":
         """Import packages, then register all currently imported BaseTool subclasses."""
         registry = cls()
         for package in packages or []:
             registry.load_package(package)
-        registry.register_loaded_subclasses(agent_type=agent_type)
+        registry.register_loaded_subclasses(agent_type=agent_type, services=services)
         return registry
 
     @classmethod
@@ -97,8 +98,13 @@ class ToolRegistry:
         cls,
         agent_type: Literal["parent", "sub_agent"],
         packages: Iterable[str] | None = None,
+        services: Any | None = None,
     ) -> "ToolRegistry":
-        return cls.auto_load(packages or ["code_harness.tools"], agent_type=agent_type)
+        return cls.auto_load(
+            packages or ["code_harness.tools"],
+            agent_type=agent_type,
+            services=services,
+        )
 
     def register(self, tool: BaseTool) -> None:
         if tool.name in self._tools:
@@ -134,7 +140,11 @@ class ToolRegistry:
     def values(self) -> list[BaseTool]:
         return list(self._tools.values())
 
-    def register_loaded_subclasses(self, agent_type: str | None = None) -> None:
+    def register_loaded_subclasses(
+        self,
+        agent_type: str | None = None,
+        services: Any | None = None,
+    ) -> None:
         for tool_cls in _all_tool_subclasses(BaseTool):
             if inspect.isabstract(tool_cls):
                 continue
@@ -142,7 +152,13 @@ class ToolRegistry:
                 continue
             if agent_type is not None and agent_type not in tool_cls.agent_types:
                 continue
-            self.register(tool_cls())
+            init_parameters = inspect.signature(tool_cls).parameters
+            tool = (
+                tool_cls(services=services)
+                if services is not None and "services" in init_parameters
+                else tool_cls()
+            )
+            self.register(tool)
 
     def load_package(self, package_name: str) -> None:
         package = importlib.import_module(package_name)
@@ -154,8 +170,11 @@ class ToolRegistry:
             importlib.import_module(module_info.name)
 
 
-def get_tools(agent_type: Literal["parent", "sub_agent"]) -> ToolRegistry:
-    return ToolRegistry.for_agent(agent_type)
+def get_tools(
+    agent_type: Literal["parent", "sub_agent"],
+    services: Any | None = None,
+) -> ToolRegistry:
+    return ToolRegistry.for_agent(agent_type, services=services)
 
 
 async def run_tool(

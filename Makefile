@@ -1,7 +1,7 @@
 .PHONY: install-dev format lint format-check test check pre-commit-install
 
 install-dev:
-	python3 -m pip install -r requirements-dev.txt
+	python3 -m pip install -e ".[dev]"
 
 format:
 	python3 -m ruff check --fix .
@@ -14,7 +14,7 @@ format-check:
 	python3 -m ruff format --check .
 
 test:
-	python3 -m pytest
+	python3 -m pytest --cov=code_harness --cov-report=term-missing
 
 check: lint format-check test
 

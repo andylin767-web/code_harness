@@ -215,13 +215,25 @@ class TaskCompleteInput(BaseModel):
     owner: str | None = None
 
 
-class TaskCreateTool(BaseTool):
+class ManagedTaskTool(BaseTool):
+    auto_register = False
+
+    def __init__(self, services=None):
+        self.task_manager = (
+            services.task_manager
+            if services is not None and services.task_manager is not None
+            else TaskManager()
+        )
+
+
+class TaskCreateTool(ManagedTaskTool):
+    auto_register = True
     name = "task_create"
     description = "Create a persisted task with optional dependency task IDs."
     input_model = TaskCreateInput
 
     def run(self, arguments: TaskCreateInput) -> str:
-        return TaskManager().create_task(
+        return self.task_manager.create_task(
             subject=arguments.subject,
             description=arguments.description,
             blockedBy=arguments.blockedBy,
@@ -229,14 +241,15 @@ class TaskCreateTool(BaseTool):
         )
 
 
-class TaskListTool(BaseTool):
+class TaskListTool(ManagedTaskTool):
+    auto_register = True
     name = "list_tasks"
     description = "List persisted tasks, optionally filtered by status or owner."
     input_model = TaskListInput
     agent_types = {"sub_agent"}
 
     def run(self, arguments: TaskListInput) -> str:
-        tasks = TaskManager().list_tasks()
+        tasks = self.task_manager.list_tasks()
         if arguments.status is not None:
             tasks = [task for task in tasks if task.status == arguments.status]
         if arguments.owner is not None:
@@ -244,30 +257,36 @@ class TaskListTool(BaseTool):
         return json.dumps([asdict(task) for task in tasks], indent=2)
 
 
-class TaskGetTool(BaseTool):
+class TaskGetTool(ManagedTaskTool):
+    auto_register = True
     name = "task_get"
     description = "Return full details for a persisted task."
     input_model = TaskGetInput
 
     def run(self, arguments: TaskGetInput) -> str:
-        return TaskManager().get_task(arguments.task_id)
+        return self.task_manager.get_task(arguments.task_id)
 
 
-class TaskClaimTool(BaseTool):
+class TaskClaimTool(ManagedTaskTool):
+    auto_register = True
     name = "claim_task"
     description = "Claim a pending task if its dependencies are completed."
     input_model = TaskClaimInput
     agent_types = {"sub_agent"}
 
     def run(self, arguments: TaskClaimInput) -> str:
-        return TaskManager().claim_task(arguments.task_id, owner=arguments.owner)
+        return self.task_manager.claim_task(arguments.task_id, owner=arguments.owner)
 
 
-class TaskCompleteTool(BaseTool):
+class TaskCompleteTool(ManagedTaskTool):
+    auto_register = True
     name = "complete_task"
     description = "Mark a task completed."
     input_model = TaskCompleteInput
     agent_types = {"sub_agent"}
 
     def run(self, arguments: TaskCompleteInput) -> str:
-        return TaskManager().complete_task(arguments.task_id, owner=arguments.owner)
+        return self.task_manager.complete_task(
+            arguments.task_id,
+            owner=arguments.owner,
+        )

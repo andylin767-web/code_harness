@@ -20,6 +20,7 @@ venv/
 
 # Harness runtime state
 .cron_events.json
+.code-harness/
 .goals/
 .mailboxes/
 .scheduled_tasks.json

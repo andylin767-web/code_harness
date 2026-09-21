@@ -20,8 +20,14 @@ class ScheduleCronTool(BaseTool):
     description = "Schedule a cron prompt for the agent to run later."
     input_model = ScheduleCronInput
 
+    def __init__(self, services=None):
+        self.scheduler = services.scheduler if services is not None else None
+
+    def _scheduler(self):
+        return self.scheduler or get_cron_scheduler()
+
     def run(self, arguments: ScheduleCronInput) -> str:
-        scheduler = get_cron_scheduler()
+        scheduler = self._scheduler()
         job = CronJob(
             id=arguments.job_id or f"cron_{uuid4().hex}",
             cron=arguments.cron,
@@ -41,8 +47,11 @@ class ListCronsTool(BaseTool):
     description = "List scheduled cron jobs."
     input_model = ListCronsInput
 
+    def __init__(self, services=None):
+        self.scheduler = services.scheduler if services is not None else None
+
     def run(self, arguments: ListCronsInput) -> str:
-        return get_cron_scheduler().list_jobs_text()
+        return (self.scheduler or get_cron_scheduler()).list_jobs_text()
 
 
 class CancelCronInput(BaseModel):
@@ -54,12 +63,16 @@ class CancelCronTool(BaseTool):
     description = "Cancel a scheduled cron job by id."
     input_model = CancelCronInput
 
+    def __init__(self, services=None):
+        self.scheduler = services.scheduler if services is not None else None
+
     def run(self, arguments: CancelCronInput) -> str:
-        job = get_cron_scheduler().remove_job(arguments.job_id)
+        scheduler = self.scheduler or get_cron_scheduler()
+        job = scheduler.remove_job(arguments.job_id)
 
         if job is None:
             return f"No cron job found id: {arguments.job_id}"
         if job.durable:
-            get_cron_scheduler().save_durable_jobs()
+            scheduler.save_durable_jobs()
 
         return f"Cancelled cron job: {arguments.job_id}"

@@ -1,4 +1,1 @@
--r requirements.txt
-
-pre-commit==4.6.2
-ruff==0.16.8
+-e .[dev]

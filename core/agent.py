@@ -4,7 +4,6 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
-from uuid import uuid4
 
 from code_harness.core.permissions import PROJECT_ROOT
 
@@ -37,14 +36,15 @@ def handle_inbox_messages(
     return False
 
 
-def resolve_task_workspace(task: Any) -> Path:
+def resolve_task_workspace(task: Any, worktree_manager=None) -> Path:
     """Resolve a task's worktree, failing closed when it is unavailable."""
-    from code_harness.core.worktrees import manager
+    if worktree_manager is None:
+        from code_harness.core.worktrees import manager as worktree_manager
 
     if not task.worktree:
-        return manager.repo_root
+        return worktree_manager.repo_root
 
-    path = manager.worktree_path(task.worktree)
+    path = worktree_manager.worktree_path(task.worktree)
     if not path.is_dir() or not (path / ".git").exists():
         raise FileNotFoundError(
             f"Task {task.id} references unavailable worktree "
@@ -166,6 +166,7 @@ class Agent:
     system_prompt: str
     model: str
     workspace_root: Path = field(default_factory=lambda: PROJECT_ROOT)
+    services: Any | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
         self.set_workspace_root(self.workspace_root)
@@ -223,8 +224,9 @@ class LeadAgent(Agent):
         agent: Agent,
         permission_engine: Any,
         task: Any,
+        worktree_manager=None,
     ) -> Path:
-        workspace_root = resolve_task_workspace(task)
+        workspace_root = resolve_task_workspace(task, worktree_manager)
         agent.set_workspace_root(workspace_root)
         permission_engine.set_workspace_root(workspace_root)
         return workspace_root
@@ -235,144 +237,14 @@ class LeadAgent(Agent):
         parent_conversation_id: str,
         message_bus: "MessageBus",
     ) -> "LoopResult | None":
-        from code_harness.core.loop import Loop, LoopStatus
-        from code_harness.core.permissions import PermissionEngine
-        from code_harness.core.tracing import save_trace, utc_now_iso
-        from code_harness.memory.context import ConversationStore, MessageRecord
-        from code_harness.team.message_type import MessageType
-        from code_harness.team.protocol_dispatcher import ProtocolDispatcher
-        from code_harness.team.protocol_manager import ProtocolManager
-        from code_harness.team.send import Sender
-        from code_harness.tools.task_system import TaskManager
+        from code_harness.team.teammate_runner import run_teammate_session
 
-        conversation_id = f"conv_{uuid4().hex}"
-        conversation_store = ConversationStore()
-        started_at = utc_now_iso()
-        run_id = f"{started_at.replace(':', '-').replace('+', 'Z')}_{uuid4().hex[:8]}"
-
-        permission_engine = PermissionEngine(
-            workspace_root=sub_agent.workspace_root,
+        return run_teammate_session(
+            self,
+            sub_agent,
+            parent_conversation_id,
+            message_bus,
         )
-        permission_engine.load_settings_json()
-        loop = Loop(sub_agent, permission_engine, max_runs=10)
-        teammate_dispatcher = ProtocolDispatcher(
-            sender=Sender(message_bus),
-            protocol_manager=ProtocolManager(),
-        )
-        task_manager = TaskManager()
-        conversation_store.append_record(
-            MessageRecord.system(
-                conversation_id=conversation_id,
-                content=loop.system_prompt,
-            )
-        )
-
-        async def run_session() -> "LoopResult | None":
-            next_user_message = sub_agent.assignment
-            inbox = message_bus.read_inbox(sub_agent.name)
-            last_result = None
-            exit_status = "timeout"
-            exit_detail = ""
-
-            while True:
-                messages: list[dict] = []
-                if handle_inbox_messages(
-                    sub_agent.name,
-                    inbox,
-                    messages,
-                    teammate_dispatcher,
-                ):
-                    exit_status = "shutdown"
-                    break
-
-                injected_content = [
-                    str(message["content"])
-                    for message in messages
-                    if message.get("content")
-                ]
-                if injected_content:
-                    next_user_message = "\n\n".join(
-                        [next_user_message, *injected_content]
-                        if next_user_message
-                        else injected_content
-                    )
-
-                result = await loop.run(
-                    conversation_store,
-                    conversation_id,
-                    next_user_message,
-                )
-                last_result = result
-
-                if result.status not in {
-                    LoopStatus.COMPLETED,
-                    LoopStatus.MAX_RUNS,
-                }:
-                    exit_status = str(result.status)
-                    break
-
-                idle_messages: list[dict[str, Any]] = []
-                idle_status = await idle_poll(
-                    sub_agent.name,
-                    idle_messages,
-                    sub_agent.role,
-                    message_bus=message_bus,
-                    teammate_dispatcher=teammate_dispatcher,
-                    task_manager=task_manager,
-                    on_task_selected=lambda task: self._activate_task_workspace(
-                        sub_agent,
-                        permission_engine,
-                        task,
-                    ),
-                    timeout_seconds=self.teammate_idle_timeout,
-                    poll_interval=self.teammate_inbox_poll_interval,
-                )
-                if idle_status != "work":
-                    exit_status = idle_status
-                    if idle_status == "workspace_error" and idle_messages:
-                        exit_detail = str(idle_messages[0].get("content", ""))
-                    break
-
-                next_user_message = "\n\n".join(
-                    str(message["content"])
-                    for message in idle_messages
-                    if message.get("content")
-                )
-                inbox = []
-
-            if exit_detail:
-                summary = exit_detail
-            elif last_result is not None:
-                summary = last_result.summary
-            else:
-                summary = f"Teammate stopped: {exit_status}"
-            message_bus.send(
-                from_agent=sub_agent.name,
-                to_agent="lead",
-                content=summary,
-                msg_type=MessageType.RESULT,
-                metadata={"exit_status": exit_status},
-            )
-
-            if last_result is not None and last_result.status != LoopStatus.COMPLETED:
-                return last_result
-            return None
-
-        try:
-            return asyncio.run(run_session())
-        finally:
-            save_trace(
-                run_id=run_id,
-                started_at=started_at,
-                ended_at=utc_now_iso(),
-                user_input=sub_agent.assignment,
-                conversation_id=conversation_id,
-                parent_conversation_id=parent_conversation_id,
-                messages=conversation_store.get_records_by_conversation_id(
-                    conversation_id
-                ),
-                trace_type="subagent",
-            )
 
     def spawn_teammate_thread(
         self,
@@ -385,7 +257,7 @@ class LeadAgent(Agent):
         from code_harness.team.message_bus import MessageBus
         from code_harness.tools.tools import get_tools
 
-        tool_registry = get_tools("sub_agent")
+        tool_registry = get_tools("sub_agent", services=self.services)
         system_prompt = (
             f"You are {name}, a {role}. Complete your assigned task using tools. "
             "Send important updates and final results to the lead."
@@ -398,11 +270,16 @@ class LeadAgent(Agent):
             toolset=tool_registry,
             system_prompt=system_prompt,
             model=self.model,
+            workspace_root=self.workspace_root,
+            services=self.services,
         )
 
-        mailbox_dir = PROJECT_ROOT / ".mailboxes"
-        mailbox_dir.mkdir(exist_ok=True)
-        message_bus = MessageBus(mailbox_dir)
+        if self.services is not None:
+            message_bus = self.services.message_bus
+        else:
+            mailbox_dir = PROJECT_ROOT / ".mailboxes"
+            mailbox_dir.mkdir(exist_ok=True)
+            message_bus = MessageBus(mailbox_dir)
         with self._teammate_lock:
             if any(agent.name == name for agent in self.subagents):
                 return f"Teammate '{name}' already exists"
@@ -435,6 +312,7 @@ class LeadAgent(Agent):
                             system_prompt=system_prompt,
                             model=current_agent.model,
                             workspace_root=current_agent.workspace_root,
+                            services=self.services,
                         )
             except Exception as exc:
                 message_bus.send(
@@ -467,9 +345,13 @@ class LeadAgent(Agent):
                 return f"No teammate found: {name}"
 
             if any(agent.name == name for agent in self.subagents):
-                mailbox_dir = PROJECT_ROOT / ".mailboxes"
-                mailbox_dir.mkdir(exist_ok=True)
-                MessageBus(mailbox_dir).send(
+                if self.services is not None:
+                    message_bus = self.services.message_bus
+                else:
+                    mailbox_dir = PROJECT_ROOT / ".mailboxes"
+                    mailbox_dir.mkdir(exist_ok=True)
+                    message_bus = MessageBus(mailbox_dir)
+                message_bus.send(
                     from_agent="lead",
                     to_agent=name,
                     content=content,

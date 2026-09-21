@@ -1,8 +1,9 @@
 import json
+import os
 from collections.abc import Callable, Iterable
 from pathlib import Path
 
-from code_harness.mcp.client import MCPClient
+from code_harness.mcp.client import MCPClient, StdioMCPClient
 from code_harness.mcp.tool import MCPTool
 from code_harness.tools.tools import ToolRegistry
 
@@ -21,6 +22,21 @@ class MCPRegistry:
         self._server_factories = (
             dict(server_factories) if server_factories is not None else MOCK_SERVERS
         )
+
+    @classmethod
+    def from_settings(cls, settings_path: str | Path) -> "MCPRegistry":
+        """Build a registry from mock names or real stdio server definitions."""
+        configurations = configured_mcp_server_definitions(settings_path)
+        factories: dict[str, MCPClientFactory] = {}
+        for name, configuration in configurations.items():
+            if configuration is None:
+                try:
+                    factories[name] = MOCK_SERVERS[name]
+                except KeyError as exc:
+                    raise ValueError(f"Unknown mock MCP server '{name}'") from exc
+                continue
+            factories[name] = _stdio_factory(name, configuration)
+        return cls(factories)
 
     async def connect_mcp(
         self,
@@ -93,13 +109,69 @@ class MCPRegistry:
 
 def configured_mcp_servers(settings_path: str | Path) -> list[str]:
     """Read the ordered MCP server list from harness settings."""
+    return list(configured_mcp_server_definitions(settings_path))
+
+
+def configured_mcp_server_definitions(
+    settings_path: str | Path,
+) -> dict[str, dict | None]:
+    """Read legacy mock names or named stdio MCP configurations."""
     data = json.loads(Path(settings_path).read_text(encoding="utf-8"))
     configured = data.get("mcp", {}).get("servers", [])
-    if not isinstance(configured, list) or not all(
+    if isinstance(configured, list) and all(
         isinstance(name, str) for name in configured
     ):
-        raise ValueError("mcp.servers must be a list of server names")
-    return configured
+        return dict.fromkeys(configured)
+    if not isinstance(configured, dict):
+        raise ValueError("mcp.servers must be a list or object")
+    definitions = {}
+    for name, value in configured.items():
+        if not isinstance(name, str) or not isinstance(value, dict):
+            raise ValueError("MCP server definitions must be named objects")
+        if value.get("transport", "stdio") != "stdio":
+            raise ValueError(f"MCP server '{name}' must use stdio transport")
+        command = value.get("command")
+        args = value.get("args", [])
+        env = value.get("env", {})
+        if not isinstance(command, str) or not command:
+            raise ValueError(f"MCP server '{name}' requires a command")
+        if not isinstance(args, list) or not all(isinstance(arg, str) for arg in args):
+            raise ValueError(f"MCP server '{name}' args must be strings")
+        if not isinstance(env, dict) or not all(
+            isinstance(key, str) and isinstance(item, str) for key, item in env.items()
+        ):
+            raise ValueError(f"MCP server '{name}' env must contain strings")
+        definitions[name] = value
+    return definitions
+
+
+def _stdio_factory(name: str, configuration: dict) -> MCPClientFactory:
+    command = configuration["command"]
+    args = list(configuration.get("args", []))
+    env = {
+        key: _expand_env_reference(value)
+        for key, value in configuration.get("env", {}).items()
+    }
+    protocol_version = configuration.get("protocolVersion", "2025-11-25")
+    return lambda: StdioMCPClient(
+        name,
+        command,
+        args=args,
+        env=env,
+        protocol_version=protocol_version,
+    )
+
+
+def _expand_env_reference(value: str) -> str:
+    if value.startswith("${") and value.endswith("}"):
+        variable = value[2:-1]
+        try:
+            return os.environ[variable]
+        except KeyError as exc:
+            raise ValueError(
+                f"Required environment variable is not set: {variable}"
+            ) from exc
+    return value
 
 
 def _mock_server_docs() -> MCPClient:
