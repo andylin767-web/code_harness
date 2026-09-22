@@ -30,7 +30,7 @@ A local-first, terminal-based coding-agent harness written in Python. It combine
 ### Installation
 
 ```bash
-git clone <repository-url>
+# Clone the repository using the HTTPS or SSH URL shown by GitHub, then:
 cd code_harness
 
 python3 -m venv .venv
