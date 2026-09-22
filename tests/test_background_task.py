@@ -79,13 +79,13 @@ class BackgroundTaskRunnerTests(unittest.TestCase):
         self.assertFalse(runner.should_run_background("bash", {"command": "pwd"}))
         self.assertFalse(runner.should_run_background("read_file", {"path": "x"}))
 
-    def test_test_workspace_path_does_not_trigger_background_execution(self):
+    def test_example_script_does_not_trigger_background_execution(self):
         runner = BackgroundTaskRunner(lambda block: "done")
 
         self.assertFalse(
             runner.should_run_background(
                 "bash",
-                {"command": ("cd /project/test_workspace && python3 config_loader.py")},
+                {"command": ("cd /project/examples && python3 calculator.py")},
             )
         )
 

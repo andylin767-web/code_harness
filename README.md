@@ -78,7 +78,7 @@ Latest reason: The test command exited with code 0 and all tests passed.
 Regular prompts do not require goal mode:
 
 ```text
-> Find the bug in test_workspace/calculator.py, fix it, and run its tests.
+> Find the bug in examples/calculator.py, fix it, and run its tests.
 ```
 
 Goal commands:

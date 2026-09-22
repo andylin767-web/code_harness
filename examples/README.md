@@ -1,24 +1,9 @@
-# Python Programs
+# Example Workspace
 
-This repository contains two simple Python programs.
+This directory contains a small Python program that can be used to exercise the
+coding-agent harness safely.
 
-## Programs
-
-### 1. Hello World (`hello_world.py`)
-
-A simple program that prints "Hello, World!" to the console.
-
-**Usage:**
-```bash
-python hello_world.py
-```
-
-**Expected Output:**
-```
-Hello, World!
-```
-
-### 2. Calculator (`calculator.py`)
+## Calculator (`calculator.py`)
 
 An interactive calculator program that supports basic arithmetic operations: addition, subtraction, multiplication, and division.
 

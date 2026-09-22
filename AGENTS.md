@@ -4,7 +4,7 @@
 
 This repository implements a Python terminal-based coding-agent harness. `main.py` is the interactive entry point. Core orchestration lives in `core/` (`loop.py`, permissions, tracing, agent runtime), while conversation storage and context compaction live in `memory/`. Agent-callable capabilities belong in `tools/`; scheduled execution is implemented in `cron_scheduler/`, and teammate messaging is under `team/`.
 
-Place automated tests in `tests/` using the existing `test_*.py` pattern. `test_workspace/` contains sample files used for agent exercises. Skills are Markdown instruction packages under `skills/<skill-name>/SKILL.md`. Runtime artifacts under `.code-harness/` are generated state, not source modules.
+Place automated tests in `tests/` using the existing `test_*.py` pattern. `examples/` contains sample files used for agent exercises. Skills are Markdown instruction packages under `skills/<skill-name>/SKILL.md`. Runtime artifacts under `.code-harness/` are generated state, not source modules.
 
 ## Build, Test, and Development Commands
 
